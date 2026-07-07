@@ -1,21 +1,23 @@
-/* Custom Premium Dark Design System for FB Ads Tracker */
+/* VartaFlow: Cyber Emerald & Slate Obsidian Premium Design System */
 
 :root {
-  /* Colors */
-  --bg-main: #06050c;
-  --bg-card: #0e0d1a;
-  --bg-card-hover: #141326;
-  --bg-input: #121122;
-  --border-color: #1f1d3a;
-  --border-color-glow: #38346c;
+  /* Theme Colors */
+  --bg-main: #04060a;
+  --bg-card: #0c101b;
+  --bg-card-hover: #121829;
+  --bg-input: #070a12;
+  --border-color: #182235;
+  --border-color-glow: #10b981;
   
-  --text-primary: #f3f4f6;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
 
-  --color-accent: #6366f1;
-  --color-accent-hover: #4f46e5;
-  --color-accent-gradient: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --color-emerald: #10b981;
+  --color-indigo: #6366f1;
+  --color-accent: #10b981;
+  --color-accent-hover: #059669;
+  --color-accent-gradient: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
   
   --color-success: #10b981;
   --color-success-bg: rgba(16, 185, 129, 0.1);
@@ -31,15 +33,15 @@
   --font-mono: var(--font-geist-mono), monospace;
 
   /* Effects */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.7), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 20px -5px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 8px 16px -4px rgba(0, 0, 0, 0.5);
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
   
-  --transition-fast: 0.15s ease;
-  --transition-normal: 0.25s ease;
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Reset and Base Styles */
@@ -73,8 +75,8 @@ button, input, select, textarea {
 
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -87,13 +89,16 @@ button, input, select, textarea {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-color-glow);
+  background: var(--text-muted);
 }
 
 /* Global Layout Grid */
 .app-container {
   display: flex;
   min-height: 100vh;
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.04) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.03) 0%, transparent 45%);
 }
 
 .sidebar {
@@ -105,52 +110,105 @@ button, input, select, textarea {
   height: 100vh;
   position: sticky;
   top: 0;
+  z-index: 100;
 }
 
 .main-content {
   flex: 1;
-  padding: 32px;
+  padding: 40px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 32px;
   overflow-y: auto;
+}
+
+/* Sidebar Navigation Items */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-card-hover);
+}
+
+.nav-item-active {
+  color: white !important;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border-left: 3px solid var(--color-success);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding-left: 13px; /* compensate for border */
 }
 
 /* Common UI Components */
 
-/* Cards */
+/* Cards with unique glowing borders */
 .card {
   background-color: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 28px;
   box-shadow: var(--shadow-md);
-  transition: border-color var(--transition-normal), background-color var(--transition-normal);
+  transition: border-color var(--transition-normal), transform var(--transition-normal), box-shadow var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--color-success-bg), transparent);
+  opacity: 0;
+  transition: opacity var(--transition-normal);
 }
 
 .card:hover {
-  border-color: var(--border-color-glow);
-  background-color: var(--bg-card-hover);
+  border-color: rgba(16, 185, 129, 0.3);
+  box-shadow: 0 15px 30px -10px rgba(16, 185, 129, 0.08);
+}
+
+.card:hover::before {
+  opacity: 1;
 }
 
 /* Typography */
 h1 {
   font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.5px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  background: linear-gradient(135deg, #ffffff 50%, var(--text-secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 h2 {
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: white;
 }
 
 .subtitle {
   font-size: 14px;
   color: var(--text-secondary);
+  font-weight: 400;
+  margin-top: 4px;
 }
 
-/* Buttons */
+/* Buttons with sleek cyberpunk gradients */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -166,13 +224,15 @@ h2 {
 
 .btn-primary {
   background: var(--color-accent-gradient);
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  color: #04060a;
+  font-weight: 700;
+  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.35);
 }
 
 .btn-primary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1.5px);
+  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.5);
+  filter: brightness(1.1);
 }
 
 .btn-secondary {
@@ -183,7 +243,7 @@ h2 {
 
 .btn-secondary:hover {
   background-color: var(--bg-card-hover);
-  border-color: var(--border-color-glow);
+  border-color: var(--text-muted);
 }
 
 .btn-danger {
@@ -197,34 +257,37 @@ h2 {
   color: #ffffff;
 }
 
-/* Badges */
+/* Badges with glowing tags */
 .badge {
   display: inline-flex;
   align-items: center;
   padding: 4px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 6px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
 }
 
 .badge-success {
   background-color: var(--color-success-bg);
   color: var(--color-success);
+  border: 1px solid rgba(16, 185, 129, 0.2);
 }
 
 .badge-error {
   background-color: var(--color-error-bg);
   color: var(--color-error);
+  border: 1px solid rgba(239, 68, 68, 0.2);
 }
 
 .badge-warning {
   background-color: var(--color-warning-bg);
   color: var(--color-warning);
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
-/* Tables */
+/* Tables (Premium design with floating cells) */
 .table-container {
   overflow-x: auto;
   border: 1px solid var(--border-color);
@@ -240,24 +303,29 @@ h2 {
 }
 
 .custom-table th {
-  background-color: rgba(14, 13, 26, 0.8);
-  padding: 16px;
-  font-weight: 600;
+  background-color: rgba(8, 10, 16, 0.6);
+  padding: 18px 24px;
+  font-weight: 700;
   color: var(--text-secondary);
   border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
 }
 
 .custom-table td {
-  padding: 16px;
+  padding: 18px 24px;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
+  font-weight: 500;
+}
+
+.custom-table tbody tr {
+  transition: background-color var(--transition-fast);
 }
 
 .custom-table tbody tr:hover {
-  background-color: var(--bg-card-hover);
+  background-color: rgba(18, 24, 41, 0.5);
 }
 
 .custom-table tbody tr:last-child td {
@@ -272,36 +340,38 @@ h2 {
 }
 
 .form-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.8px;
 }
 
 .form-input {
   background-color: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 10px 14px;
+  padding: 12px 16px;
   font-size: 14px;
   width: 100%;
-  transition: border-color var(--transition-fast);
+  color: white;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .form-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--color-success);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
 }
 
-/* Glassmorphic Modal */
+/* Glassmorphic Modal with high blur */
 .modal-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(6, 5, 12, 0.8);
-  backdrop-filter: blur(8px);
+  background-color: rgba(4, 6, 10, 0.85);
+  backdrop-filter: blur(12px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -310,26 +380,25 @@ h2 {
 
 .modal-content {
   background-color: var(--bg-card);
-  border: 1px solid var(--border-color-glow);
+  border: 1px solid rgba(16, 185, 129, 0.25);
   border-radius: var(--radius-lg);
   width: 500px;
-  max-width: 90%;
+  max-width: 95%;
   box-shadow: var(--shadow-lg);
-  padding: 32px;
+  padding: 36px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   animation: modalShow var(--transition-normal);
 }
 
 @keyframes modalShow {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: scale(0.96) translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: scale(1) translateY(0);
   }
 }
-
