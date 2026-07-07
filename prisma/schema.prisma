@@ -1,0 +1,143 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id              String             @id @default(uuid())
+  email           String             @unique
+  name            String?
+  password        String
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  inviteLinks     InviteLink[]
+  socialAccounts  FbSocialAccount[]
+}
+
+model InviteLink {
+  id          String    @id @default(uuid())
+  description String?
+  isOneTime   Boolean   @default(true)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  usedAt      DateTime?
+  usedByFbId  String?
+}
+
+model FbSocialAccount {
+  id             String        @id
+  name           String
+  avatarUrl      String?
+  accessToken    String
+  tokenExpiresAt DateTime?
+  status         String        @default("ACTIVE")
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  adAccounts     FbAdAccount[]
+  pages          FbPage[]
+}
+
+model FbAdAccount {
+  id              String         @id
+  name            String
+  currency        String         @default("USD")
+  timezoneName    String         @default("UTC")
+  spend           Float          @default(0)
+  status          String         @default("ACTIVE")
+  socialAccountId String
+  socialAccount   FbSocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  lastSyncedAt    DateTime?
+  dailyInsights   DailyInsight[]
+  automationRules AutomationRule[]
+}
+
+model FbPage {
+  id              String          @id
+  name            String
+  avatarUrl       String?
+  accessToken     String
+  socialAccountId String
+  socialAccount   FbSocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  moderationRules ModerationRule[]
+  moderationLogs  ModerationLog[]
+}
+
+model DailyInsight {
+  id           String      @id @default(uuid())
+  date         DateTime
+  adAccountId  String
+  adAccount    FbAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaignId   String
+  campaignName String
+  adsetId      String?
+  adsetName    String?
+  adId         String?
+  adName       String?
+  spend        Float       @default(0)
+  impressions  Int         @default(0)
+  clicks       Int         @default(0)
+  uniqueClicks Int         @default(0)
+  leads        Int         @default(0)
+  conversions  Int         @default(0)
+  ctr          Float       @default(0)
+  cpc          Float       @default(0)
+  cpm          Float       @default(0)
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([date, adAccountId, campaignId, adsetId, adId])
+}
+
+model ModerationRule {
+  id        String   @id @default(uuid())
+  pageId    String
+  page      FbPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  name      String
+  type      String   @default("STOP_WORDS")
+  keywords  String   @default("")
+  action    String   @default("HIDE")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ModerationLog {
+  id          String   @id @default(uuid())
+  pageId      String
+  page        FbPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  postId      String
+  commentId   String
+  commentText String
+  authorName  String?
+  actionTaken String
+  ruleMatched String?
+  createdAt   DateTime @default(now())
+}
+
+model AutomationRule {
+  id              String      @id @default(uuid())
+  adAccountId     String
+  adAccount       FbAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  name            String
+  targetType      String      @default("CAMPAIGN")
+  targetId        String      @default("ALL")
+  triggerMetric   String      @default("SPEND")
+  triggerOperator String      @default("GREATER_THAN")
+  triggerValue    Float
+  action          String      @default("PAUSE")
+  isActive        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
