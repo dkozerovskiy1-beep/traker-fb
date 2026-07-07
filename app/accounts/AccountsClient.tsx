@@ -77,6 +77,46 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
     alert("Посилання скопійовано у буфер обміну!");
   };
 
+  const handleDeleteInvite = async (id: string, name: string) => {
+    if (!confirm(`Ви дійсно бажаєте видалити інвайт-посилання "${name || "Без опису"}"?`)) return;
+    try {
+      const res = await fetch("/api/invite/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Інвайт-посилання успішно видалено!");
+        router.refresh();
+      } else {
+        alert("Помилка видалення: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Сталася помилка: " + err.message);
+    }
+  };
+
+  const handleDisconnectAccount = async (id: string, name: string) => {
+    if (!confirm(`Ви дійсно бажаєте відключити акаунт "${name}"?\nУсі пов'язані кабінети, сторінки та статистика будуть видалені.`)) return;
+    try {
+      const res = await fetch("/api/accounts/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Акаунт успішно відключено!");
+        router.refresh();
+      } else {
+        alert("Помилка відключення: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Сталася помилка: " + err.message);
+    }
+  };
+
   return (
     <>
       {/* Top Header Row */}
@@ -185,6 +225,13 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
                           >
                             Статистика
                           </button>
+                          <button
+                            className="btn btn-danger"
+                            style={{ padding: "6px 12px", fontSize: "12px" }}
+                            onClick={() => handleDisconnectAccount(acc.id, acc.name)}
+                          >
+                            Видалити
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -213,6 +260,7 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
                   <th>Дата створення</th>
                   <th>Статус</th>
                   <th>Посилання</th>
+                  <th>Дії</th>
                 </tr>
               </thead>
               <tbody>
@@ -242,6 +290,15 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
                           onClick={() => copyToClipboard(inviteUrlString)}
                         >
                           Копіювати посилання
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-danger"
+                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          onClick={() => handleDeleteInvite(link.id, link.description || "")}
+                        >
+                          Видалити
                         </button>
                       </td>
                     </tr>
