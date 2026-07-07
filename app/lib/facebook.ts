@@ -53,7 +53,6 @@ export function getFacebookAuthUrl(state: string): string {
   // email, ads_read, ads_management, business_management, pages_show_list,
   // pages_read_engagement, pages_read_user_content, pages_manage_engagement, pages_manage_metadata
   const scopes = [
-    "email",
     "ads_read",
     "ads_management",
     "business_management",
