@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface InviteLinkItem {
   id: string;
@@ -29,6 +29,19 @@ interface AccountsClientProps {
 
 export default function AccountsClient({ initialInviteLinks, socialAccounts }: AccountsClientProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const errorParam = searchParams.get("error");
+  const successParam = searchParams.get("success");
+
+  useEffect(() => {
+    if (errorParam) {
+      alert("Помилка підключення Facebook: " + decodeURIComponent(errorParam));
+    }
+    if (successParam) {
+      alert("Facebook акаунт успішно підключено!");
+    }
+  }, [errorParam, successParam]);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [isOneTime, setIsOneTime] = useState(true);
