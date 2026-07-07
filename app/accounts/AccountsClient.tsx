@@ -48,6 +48,10 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
   const [newInviteUrl, setNewInviteUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [pastedToken, setPastedToken] = useState("");
+  const [isTokenConnecting, setIsTokenConnecting] = useState(false);
+
   const handleCreateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
@@ -117,6 +121,32 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
     }
   };
 
+  const handleConnectToken = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pastedToken.trim()) return;
+    setIsTokenConnecting(true);
+    try {
+      const res = await fetch("/api/accounts/connect-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken: pastedToken.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Акаунт успішно підключено за токеном!");
+        setIsTokenModalOpen(false);
+        setPastedToken("");
+        router.refresh();
+      } else {
+        alert("Помилка підключення: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Сталася помилка: " + err.message);
+    } finally {
+      setIsTokenConnecting(false);
+    }
+  };
+
   return (
     <>
       {/* Top Header Row */}
@@ -125,13 +155,22 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
           <h1>Facebook Акаунти</h1>
           <p className="subtitle">Підключені соціальні профілі та рекламні кабінети</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setNewInviteUrl(""); setIsModalOpen(true); }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span>Створити інвайт-посилання</span>
-        </button>
+        <div style={{ display: "flex", gap: "12px" }}>
+          <button className="btn btn-secondary" onClick={() => { setPastedToken(""); setIsTokenModalOpen(true); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+            <span>Підключити за токеном</span>
+          </button>
+          <button className="btn btn-primary" onClick={() => { setNewInviteUrl(""); setIsModalOpen(true); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Створити інвайт-посилання</span>
+          </button>
+        </div>
       </div>
 
       {/* Connected Accounts Table */}
@@ -384,6 +423,45 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {isTokenModalOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2>Підключити Facebook за токеном</h2>
+              <button style={{ cursor: "pointer", fontSize: "20px" }} onClick={() => setIsTokenModalOpen(false)}>×</button>
+            </div>
+
+            <form onSubmit={handleConnectToken} style={{ display: "flex", flexDirection: "column", gap: "16px", marginTop: "12px" }}>
+              <p style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+                Вставте ваш Facebook Access Token (наприклад, EAAB... або EAAC...). Наш сервер автоматично підтягне профіль, рекламні кабінети та сторінки.
+              </p>
+
+              <div className="form-group">
+                <label className="form-label">Facebook Access Token</label>
+                <textarea
+                  className="form-input"
+                  placeholder="Вставте токен, що починається на EAA..."
+                  rows={4}
+                  required
+                  value={pastedToken}
+                  onChange={(e) => setPastedToken(e.target.value)}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: "12px", resize: "vertical" }}
+                />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "16px" }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setIsTokenModalOpen(false)}>
+                  Скасувати
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={isTokenConnecting}>
+                  {isTokenConnecting ? "Підключення..." : "Підключити"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
