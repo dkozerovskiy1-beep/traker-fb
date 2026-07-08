@@ -106,6 +106,43 @@ export default function AnalyticsClient({
   const [customEnd, setCustomEnd] = useState(searchParams.get("customEndDate") || endDate);
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
 
+  // Base month index state for rendering the visual calendars
+  const [baseMonth, setBaseMonth] = useState(() => {
+    const initialDateStr = searchParams.get("customStartDate") || startDate;
+    const d = new Date(initialDateStr);
+    return isNaN(d.getTime()) ? new Date() : d;
+  });
+
+  const handlePrevMonths = () => {
+    setBaseMonth(new Date(baseMonth.getFullYear(), baseMonth.getMonth() - 1, 1));
+  };
+
+  const handleNextMonths = () => {
+    setBaseMonth(new Date(baseMonth.getFullYear(), baseMonth.getMonth() + 1, 1));
+  };
+
+  const formatDateStr = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+
+  const handleDateClick = (dateStr: string) => {
+    if (!customStart || (customStart && customEnd)) {
+      setCustomStart(dateStr);
+      setCustomEnd("");
+    } else {
+      const startT = new Date(customStart).getTime();
+      const clickT = new Date(dateStr).getTime();
+      if (clickT < startT) {
+        setCustomStart(dateStr);
+      } else {
+        setCustomEnd(dateStr);
+      }
+    }
+  };
+
   // Expand/Collapse state for Campaigns and AdSets
   const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
   const [expandedAdSets, setExpandedAdSets] = useState<Record<string, boolean>>({});
@@ -152,6 +189,13 @@ export default function AnalyticsClient({
     router.push(`/?${params.toString()}`);
   };
 
+  const formatDateStrUk = (dStr: string) => {
+    if (!dStr) return "";
+    const parts = dStr.split("-");
+    if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+    return dStr;
+  };
+
   const getDateRangeLabel = () => {
     if (selectedPeriod === "today") return "Сьогодні";
     if (selectedPeriod === "yesterday") return "Вчора";
@@ -159,15 +203,101 @@ export default function AnalyticsClient({
     if (selectedPeriod === "last30") return "Останні 30 днів";
     if (selectedPeriod === "month") return "Цей місяць";
     if (selectedPeriod === "custom") {
-      const formatStringDate = (dStr: string) => {
-        if (!dStr) return "";
-        const parts = dStr.split("-");
-        if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
-        return dStr;
-      };
-      return `${formatStringDate(customStart)} - ${formatStringDate(customEnd)}`;
+      return `${formatDateStrUk(customStart)} - ${formatDateStrUk(customEnd)}`;
     }
     return "Вибір дат";
+  };
+
+  const renderMonthCalendar = (monthDate: Date) => {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+
+    const monthNames = [
+      "Січень", "Лютий", "Березень", "Квітень", "Травень", "Червень",
+      "Липень", "Серпень", "Вересень", "Жовтень", "Листопад", "Грудень"
+    ];
+
+    const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0, Sunday = 6
+    const totalDays = new Date(year, month + 1, 0).getDate();
+
+    const daysArray = [];
+    for (let i = 0; i < firstDayIndex; i++) {
+      daysArray.push(null);
+    }
+    for (let i = 1; i <= totalDays; i++) {
+      daysArray.push(new Date(year, month, i));
+    }
+
+    const weekdays = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"];
+
+    return (
+      <div style={{ width: "220px" }}>
+        <div style={{ display: "flex", justifyContent: "center", fontWeight: "700", color: "white", fontSize: "13px", marginBottom: "12px" }}>
+          {monthNames[month]} {year}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px", textAlign: "center", marginBottom: "8px" }}>
+          {weekdays.map(d => (
+            <span key={d} style={{ fontSize: "11px", color: "var(--text-muted)", fontWeight: "600" }}>{d}</span>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px" }}>
+          {daysArray.map((dayDate, idx) => {
+            if (!dayDate) return <div key={`empty-${idx}`} />;
+
+            const dateStr = formatDateStr(dayDate);
+            const isStart = customStart === dateStr;
+            const isEnd = customEnd === dateStr;
+            
+            let isBetween = false;
+            if (customStart && customEnd) {
+              const dTime = dayDate.getTime();
+              const startTime = new Date(customStart).getTime();
+              const endTime = new Date(customEnd).getTime();
+              isBetween = dTime > startTime && dTime < endTime;
+            }
+
+            const active = isStart || isEnd;
+
+            return (
+              <button
+                key={dateStr}
+                type="button"
+                onClick={() => handleDateClick(dateStr)}
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "11px",
+                  fontWeight: active ? "700" : "500",
+                  color: active ? "var(--bg-card)" : (isBetween ? "var(--color-accent)" : "#f1f5f9"),
+                  backgroundColor: active 
+                    ? "var(--color-accent)" 
+                    : (isBetween ? "rgba(16, 185, 129, 0.15)" : "transparent"),
+                  border: "none",
+                  borderRadius: active ? "50%" : "4px",
+                  cursor: "pointer",
+                  transition: "all 0.15s"
+                }}
+                onMouseEnter={(e) => {
+                  if (!active && !isBetween) {
+                    e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.05)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active && !isBetween) {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }
+                }}
+              >
+                {dayDate.getDate()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
   };
 
   // Helper metric calculations
@@ -244,7 +374,7 @@ export default function AnalyticsClient({
               padding: "20px",
               display: "flex",
               gap: "20px",
-              minWidth: "480px"
+              minWidth: "700px"
             }}>
               {/* Presets List */}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "160px", borderRight: "1px solid var(--border-color)", paddingRight: "16px" }}>
@@ -261,6 +391,7 @@ export default function AnalyticsClient({
                   return (
                     <button
                       key={p}
+                      type="button"
                       style={{
                         padding: "8px 12px",
                         textAlign: "left",
@@ -296,52 +427,64 @@ export default function AnalyticsClient({
                 })}
               </div>
 
-              {/* Custom Date Inputs */}
+              {/* Custom Date Calendars */}
               <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-                <span style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px" }}>Вибір дат</span>
-                
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  <div className="form-group" style={{ marginBottom: "8px" }}>
-                    <label className="form-label" style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px" }}>З дати:</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      style={{ color: "white", padding: "6px 10px", fontSize: "13px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)" }}
-                      value={customStart}
-                      onChange={(e) => setCustomStart(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="form-group" style={{ marginBottom: "8px" }}>
-                    <label className="form-label" style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px" }}>По дату:</label>
-                    <input
-                      type="date"
-                      className="form-input"
-                      style={{ color: "white", padding: "6px 10px", fontSize: "13px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)" }}
-                      value={customEnd}
-                      onChange={(e) => setCustomEnd(e.target.value)}
-                    />
-                  </div>
+                {/* Header with Prev/Next Controls */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-color)", paddingBottom: "10px", marginBottom: "8px" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: "4px 8px", fontSize: "11px", minWidth: "auto" }}
+                    onClick={handlePrevMonths}
+                  >
+                    ◀
+                  </button>
+                  <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px" }}>
+                    Вибір періоду
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    style={{ padding: "4px 8px", fontSize: "11px", minWidth: "auto" }}
+                    onClick={handleNextMonths}
+                  >
+                    ▶
+                  </button>
                 </div>
 
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px", borderTop: "1px solid var(--border-color)", paddingTop: "12px" }}>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ padding: "6px 12px", fontSize: "12px" }}
-                    onClick={() => setIsDateDropdownOpen(false)}
-                  >
-                    Скасувати
-                  </button>
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: "6px 12px", fontSize: "12px" }}
-                    onClick={() => {
-                      applyCustomDates();
-                      setIsDateDropdownOpen(false);
-                    }}
-                  >
-                    Застосувати
-                  </button>
+                {/* Side by side calendars */}
+                <div style={{ display: "flex", gap: "24px" }}>
+                  {renderMonthCalendar(baseMonth)}
+                  {renderMonthCalendar(new Date(baseMonth.getFullYear(), baseMonth.getMonth() + 1, 1))}
+                </div>
+
+                {/* Selected Dates Summary & Actions */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", borderTop: "1px solid var(--border-color)", paddingTop: "12px" }}>
+                  <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                    Період: <strong style={{ color: "white" }}>{customStart ? formatDateStrUk(customStart) : "—"}</strong> до <strong style={{ color: "white" }}>{customEnd ? formatDateStrUk(customEnd) : "—"}</strong>
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
+                      onClick={() => setIsDateDropdownOpen(false)}
+                    >
+                      Скасувати
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
+                      disabled={!customStart || !customEnd}
+                      onClick={() => {
+                        applyCustomDates();
+                        setIsDateDropdownOpen(false);
+                      }}
+                    >
+                      Оновити
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
