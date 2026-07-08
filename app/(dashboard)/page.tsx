@@ -8,7 +8,14 @@ interface PageProps {
     socialAccount?: string;
     adAccount?: string;
     period?: string;
+    customStartDate?: string;
+    customEndDate?: string;
   }>;
+}
+
+// Helper to get formatted date string (YYYY-MM-DD)
+function formatDate(date: Date): string {
+  return date.toISOString().split("T")[0];
 }
 
 export default async function HomePage({ searchParams }: PageProps) {
@@ -16,10 +23,12 @@ export default async function HomePage({ searchParams }: PageProps) {
   const socialAccount = resolvedSearchParams.socialAccount || "ALL";
   const adAccount = resolvedSearchParams.adAccount || "ALL";
   const period = resolvedSearchParams.period || "today";
+  const customStartDate = resolvedSearchParams.customStartDate || "";
+  const customEndDate = resolvedSearchParams.customEndDate || "";
 
   // Select Date Range based on period
   let startDate = new Date();
-  const endDate = new Date();
+  let endDate = new Date();
   
   if (period === "today") {
     startDate.setHours(0, 0, 0, 0);
@@ -30,15 +39,28 @@ export default async function HomePage({ searchParams }: PageProps) {
     endDate.setHours(23, 59, 59, 999);
   } else if (period === "last7") {
     startDate.setDate(startDate.getDate() - 7);
+    startDate.setHours(0, 0, 0, 0);
   } else if (period === "last30") {
     startDate.setDate(startDate.getDate() - 30);
+    startDate.setHours(0, 0, 0, 0);
   } else if (period === "month") {
     startDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    startDate.setHours(0, 0, 0, 0);
+  } else if (period === "custom" && customStartDate && customEndDate) {
+    startDate = new Date(customStartDate);
+    startDate.setHours(0, 0, 0, 0);
+    endDate = new Date(customEndDate);
+    endDate.setHours(23, 59, 59, 999);
+  } else {
+    // default today
+    startDate.setHours(0, 0, 0, 0);
   }
 
   let adAccountOptions: any[] = [];
   let socialAccountOptions: any[] = [];
-  let campaigns: any[] = [];
+  let campaignsList: any[] = [];
+  let rawInsights: any[] = [];
+  let socialAccountsSummary: any[] = [];
   let totals = { spend: 0, impressions: 0, clicks: 0, leads: 0, conversions: 0 };
 
   try {
@@ -48,7 +70,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     });
 
     adAccountOptions = await db.fbAdAccount.findMany({
-      select: { id: true, name: true, socialAccountId: true }
+      select: { id: true, name: true, socialAccountId: true, status: true }
     });
 
     // 2. Build filters for stats query
@@ -56,7 +78,6 @@ export default async function HomePage({ searchParams }: PageProps) {
     if (adAccount !== "ALL") {
       accountFilter.adAccountId = adAccount;
     } else if (socialAccount !== "ALL") {
-      // Find all ad accounts belonging to the selected social account
       const ads = await db.fbAdAccount.findMany({
         where: { socialAccountId: socialAccount },
         select: { id: true }
@@ -64,80 +85,125 @@ export default async function HomePage({ searchParams }: PageProps) {
       accountFilter.adAccountId = { in: ads.map(a => a.id) };
     }
 
-    // 3. Query insights
-    const dbInsights = await db.dailyInsight.findMany({
+    // 3. Query daily insights
+    rawInsights = await db.dailyInsight.findMany({
       where: {
         date: { gte: startDate, lte: endDate },
         ...accountFilter
       }
     });
 
-    // Group insights by campaignId to show in table
-    const campaignGroup: Record<string, any> = {};
-
-    for (const item of dbInsights) {
-      if (!campaignGroup[item.campaignId]) {
-        campaignGroup[item.campaignId] = {
-          campaignId: item.campaignId,
-          campaignName: item.campaignName,
-          status: "ACTIVE", // For display
-          impressions: 0,
-          clicks: 0,
-          spend: 0,
-          leads: 0,
-          conversions: 0
-        };
-      }
-      campaignGroup[item.campaignId].impressions += item.impressions;
-      campaignGroup[item.campaignId].clicks += item.clicks;
-      campaignGroup[item.campaignId].spend += item.spend;
-      campaignGroup[item.campaignId].leads += item.leads;
-      campaignGroup[item.campaignId].conversions += item.conversions;
-
-      // Add to grand totals
+    // 4. Calculate Grand Totals
+    for (const item of rawInsights) {
+      totals.spend += item.spend;
       totals.impressions += item.impressions;
       totals.clicks += item.clicks;
-      totals.spend += item.spend;
       totals.leads += item.leads;
       totals.conversions += item.conversions;
     }
 
-    campaigns = Object.values(campaignGroup);
+    // 5. Query Campaigns tree (Campaigns -> Adsets -> Ads)
+    const activeAdAccountIds = adAccount !== "ALL"
+      ? [adAccount]
+      : (socialAccount !== "ALL"
+          ? adAccountOptions.filter(a => a.socialAccountId === socialAccount).map(a => a.id)
+          : adAccountOptions.map(a => a.id));
+
+    campaignsList = await db.fbCampaign.findMany({
+      where: {
+        adAccountId: { in: activeAdAccountIds }
+      },
+      include: {
+        adsets: {
+          include: {
+            ads: true
+          }
+        }
+      }
+    });
+
+    // 6. Build Social Accounts summary for the "ALL" view
+    for (const socialAcc of socialAccountOptions) {
+      const ads = adAccountOptions.filter(a => a.socialAccountId === socialAcc.id);
+      const adIds = ads.map(a => a.id);
+      
+      const profileInsights = rawInsights.filter(i => adIds.includes(i.adAccountId));
+      const spend = profileInsights.reduce((sum, i) => sum + i.spend, 0);
+      const impressions = profileInsights.reduce((sum, i) => sum + i.impressions, 0);
+      const clicks = profileInsights.reduce((sum, i) => sum + i.clicks, 0);
+      const leads = profileInsights.reduce((sum, i) => sum + i.leads, 0);
+      const conversions = profileInsights.reduce((sum, i) => sum + i.conversions, 0);
+      
+      socialAccountsSummary.push({
+        id: socialAcc.id,
+        name: socialAcc.name,
+        spend,
+        impressions,
+        clicks,
+        leads,
+        conversions
+      });
+    }
 
   } catch (error) {
-    console.error("Prisma error in HomePage (using mock statistics fallback):", error);
+    console.error("Prisma query error in HomePage (using mock analytics):", error);
 
-    // Default beautiful mock fallback data matching Screenshot 3
+    // Fallbacks for mock data representation
     socialAccountOptions = [
-      { id: "2221942741927149", name: "Harold Fotso" }
+      { id: "2221942741927149", name: "Профіль один (Анна Шевченко)" }
     ];
 
     adAccountOptions = [
-      { id: "act_3359672500881835", name: "MC7595 (Personal)", socialAccountId: "2221942741927149" },
-      { id: "act_4492817290192837", name: "Business Cabinet 2", socialAccountId: "2221942741927149" }
+      { id: "act_3359672500881835", name: "Кабінет клієнта №1", socialAccountId: "2221942741927149", status: "ACTIVE" },
+      { id: "act_4492817290192837", name: "Кабінет клієнта №2", socialAccountId: "2221942741927149", status: "ACTIVE" }
     ];
 
-    campaigns = [
+    campaignsList = [
       {
-        campaignId: "120249657781210412",
-        campaignName: "gp-03.07.26-mc6743",
+        id: "120249657781210412",
+        name: "gp-03.07.26-mc6743",
         status: "ACTIVE",
-        impressions: 2302,
-        clicks: 92,
-        spend: 40.93,
-        leads: 8,
-        conversions: 2
+        effectiveStatus: "ACTIVE",
+        adAccountId: "act_3359672500881835",
+        adsets: [
+          {
+            id: "adset_1",
+            name: "Adset Traffic Ukraine",
+            status: "ACTIVE",
+            effectiveStatus: "ACTIVE",
+            campaignId: "120249657781210412",
+            ads: [
+              { id: "ad_1", name: "Креатив №1 (UA Static)", status: "ACTIVE", effectiveStatus: "ACTIVE", rejectionReason: null },
+              { id: "ad_2", name: "Креатив №2 (UA Video)", status: "ACTIVE", effectiveStatus: "DISAPPROVED", rejectionReason: "Violated policy: Misleading claims" }
+            ]
+          }
+        ]
       },
       {
-        campaignId: "120249622524930412",
-        campaignName: "bra-03.07.26-mc6743",
+        id: "120249622524930412",
+        name: "bra-03.07.26-mc6743",
         status: "PAUSED",
-        impressions: 1540,
-        clicks: 45,
-        spend: 25.10,
-        leads: 4,
-        conversions: 1
+        effectiveStatus: "PAUSED",
+        adAccountId: "act_4492817290192837",
+        adsets: [
+          {
+            id: "adset_2",
+            name: "Adset Leads Kyiv",
+            status: "PAUSED",
+            effectiveStatus: "PAUSED",
+            campaignId: "120249622524930412",
+            ads: [
+              { id: "ad_3", name: "Креатив №3 (Kyiv Leadform)", status: "PAUSED", effectiveStatus: "PAUSED", rejectionReason: null }
+            ]
+          }
+        ]
       }
+    ];
+
+    rawInsights = [
+      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_1", spend: 30.00, impressions: 1800, clicks: 70, uniqueClicks: 65, leads: 6, conversions: 2 },
+      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_2", spend: 10.93, impressions: 502, clicks: 22, uniqueClicks: 20, leads: 2, conversions: 0 },
+      { date: startDate, adAccountId: "act_4492817290192837", campaignId: "120249622524930412", adsetId: "adset_2", adId: "ad_3", spend: 25.10, impressions: 1540, clicks: 45, uniqueClicks: 40, leads: 4, conversions: 1 }
     ];
 
     totals = {
@@ -147,13 +213,19 @@ export default async function HomePage({ searchParams }: PageProps) {
       leads: 12,
       conversions: 3
     };
-    
-    // If the user filtered by a specific account in mock mode:
+
+    socialAccountsSummary = [
+      { id: "2221942741927149", name: "Профіль один (Анна Шевченко)", spend: 66.03, impressions: 3842, clicks: 137, leads: 12, conversions: 3 }
+    ];
+
+    // Handle filter mocks
     if (adAccount === "act_3359672500881835") {
-      campaigns = [campaigns[0]];
+      campaignsList = [campaignsList[0]];
+      rawInsights = rawInsights.filter(i => i.adAccountId === "act_3359672500881835");
       totals = { spend: 40.93, impressions: 2302, clicks: 92, leads: 8, conversions: 2 };
     } else if (adAccount === "act_4492817290192837") {
-      campaigns = [campaigns[1]];
+      campaignsList = [campaignsList[1]];
+      rawInsights = rawInsights.filter(i => i.adAccountId === "act_4492817290192837");
       totals = { spend: 25.10, impressions: 1540, clicks: 45, leads: 4, conversions: 1 };
     }
   }
@@ -162,8 +234,13 @@ export default async function HomePage({ searchParams }: PageProps) {
     <AnalyticsClient
       adAccounts={adAccountOptions}
       socialAccounts={socialAccountOptions}
-      campaigns={campaigns}
+      campaignsList={campaignsList}
+      dbInsights={rawInsights}
+      socialAccountsSummary={socialAccountsSummary}
       totals={totals}
+      period={period}
+      startDate={formatDate(startDate)}
+      endDate={formatDate(endDate)}
     />
   );
 }

@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
-import { getAdAccountInsights } from "@/app/lib/facebook";
+import {
+  getAdAccountInsights,
+  getManagedAdAccounts,
+  getAdAccountCampaigns,
+  getAdAccountAdSets,
+  getAdAccountAds
+} from "@/app/lib/facebook";
+import { sendTelegramAlert } from "@/app/lib/telegram";
 
 // Helper to get formatted date string (YYYY-MM-DD)
 function formatDate(date: Date): string {
@@ -37,11 +44,171 @@ export async function GET(req: Request) {
     let triggeredRulesCount = 0;
 
     for (const socialAccount of activeSocialAccounts) {
-      for (const adAccount of socialAccount.adAccounts) {
+      let fbAdAccounts: any[] = [];
+      try {
+        fbAdAccounts = await getManagedAdAccounts(socialAccount.accessToken);
+      } catch (err) {
+        console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id}:`, err);
+        fbAdAccounts = socialAccount.adAccounts.map(ad => ({
+          id: ad.id,
+          name: ad.name,
+          currency: ad.currency,
+          timezone_name: ad.timezoneName,
+          account_status: ad.status === "ACTIVE" ? 1 : 2,
+          amount_spent: 0
+        }));
+      }
+
+      for (const fbAdAcc of fbAdAccounts) {
+        const oldAdAccount = socialAccount.adAccounts.find(ad => ad.id === fbAdAcc.id);
+        const newStatus = fbAdAcc.account_status === 1 ? "ACTIVE" : "DISABLED";
+
+        if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
+          await sendTelegramAlert(
+            `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
+            `• <b>Профіль:</b> ${socialAccount.name}\n` +
+            `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
+            `• <b>Статус:</b> DISABLED (Деактивовано)`
+          );
+        }
+
+        const adAccount = await db.fbAdAccount.upsert({
+          where: { id: fbAdAcc.id },
+          update: {
+            name: fbAdAcc.name || `Ad Account ${fbAdAcc.id}`,
+            currency: fbAdAcc.currency || "USD",
+            timezoneName: fbAdAcc.timezone_name || "UTC",
+            status: newStatus
+          },
+          create: {
+            id: fbAdAcc.id,
+            name: fbAdAcc.name || `Ad Account ${fbAdAcc.id}`,
+            currency: fbAdAcc.currency || "USD",
+            timezoneName: fbAdAcc.timezone_name || "UTC",
+            status: newStatus,
+            socialAccountId: socialAccount.id
+          }
+        });
+
         if (adAccount.status !== "ACTIVE") continue;
 
         try {
-          // 3. Fetch insights from FB Graph API for the last 30 days
+          const [fbCampaigns, fbAdSets, fbAds] = await Promise.all([
+            getAdAccountCampaigns(adAccount.id, socialAccount.accessToken),
+            getAdAccountAdSets(adAccount.id, socialAccount.accessToken),
+            getAdAccountAds(adAccount.id, socialAccount.accessToken)
+          ]);
+
+          for (const camp of fbCampaigns) {
+            await db.fbCampaign.upsert({
+              where: { id: camp.id },
+              update: {
+                name: camp.name,
+                status: camp.status,
+                effectiveStatus: camp.effective_status,
+                updatedAt: new Date()
+              },
+              create: {
+                id: camp.id,
+                name: camp.name,
+                status: camp.status,
+                effectiveStatus: camp.effective_status,
+                adAccountId: adAccount.id
+              }
+            });
+          }
+
+          for (const adset of fbAdSets) {
+            const campExists = fbCampaigns.some(c => c.id === adset.campaign_id);
+            if (!campExists && adset.campaign_id) {
+              await db.fbCampaign.upsert({
+                where: { id: adset.campaign_id },
+                update: { updatedAt: new Date() },
+                create: {
+                  id: adset.campaign_id,
+                  name: `Campaign ${adset.campaign_id}`,
+                  adAccountId: adAccount.id
+                }
+              });
+            }
+
+            await db.fbAdSet.upsert({
+              where: { id: adset.id },
+              update: {
+                name: adset.name,
+                status: adset.status,
+                effectiveStatus: adset.effective_status,
+                updatedAt: new Date()
+              },
+              create: {
+                id: adset.id,
+                name: adset.name,
+                status: adset.status,
+                effectiveStatus: adset.effective_status,
+                campaignId: adset.campaign_id
+              }
+            });
+          }
+
+          for (const ad of fbAds) {
+            const adsetExists = fbAdSets.some(a => a.id === ad.adset_id);
+            if (!adsetExists && ad.adset_id) {
+              await db.fbAdSet.upsert({
+                where: { id: ad.adset_id },
+                update: { updatedAt: new Date() },
+                create: {
+                  id: ad.adset_id,
+                  name: `Adset ${ad.adset_id}`,
+                  campaignId: fbAdSets.find(s => s.id === ad.adset_id)?.campaign_id || "unknown"
+                }
+              });
+            }
+
+            const oldAd = await db.fbAd.findUnique({
+              where: { id: ad.id }
+            });
+
+            if (oldAd && oldAd.effectiveStatus !== "DISAPPROVED" && ad.effective_status === "DISAPPROVED") {
+              await sendTelegramAlert(
+                `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
+                `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`
+              );
+            }
+
+            if (oldAd && oldAd.effectiveStatus === "DISAPPROVED" && ad.effective_status === "ACTIVE") {
+              await sendTelegramAlert(
+                `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                `• <b>Статус:</b> ACTIVE (Активне)`
+              );
+            }
+
+            await db.fbAd.upsert({
+              where: { id: ad.id },
+              update: {
+                name: ad.name,
+                status: ad.status,
+                effectiveStatus: ad.effective_status,
+                rejectionReason: ad.rejection_reason,
+                updatedAt: new Date()
+              },
+              create: {
+                id: ad.id,
+                name: ad.name,
+                status: ad.status,
+                effectiveStatus: ad.effective_status,
+                rejectionReason: ad.rejection_reason,
+                adsetId: ad.adset_id
+              }
+            });
+          }
+
           const insights = await getAdAccountInsights(
             adAccount.id,
             socialAccount.accessToken,
@@ -49,7 +216,6 @@ export async function GET(req: Request) {
             endDateStr
           );
 
-          // 4. Save insights to database (Upsert)
           for (const insight of insights) {
             const dateObj = new Date(insight.date);
 

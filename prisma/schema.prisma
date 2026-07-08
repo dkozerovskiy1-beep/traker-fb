@@ -59,6 +59,7 @@ model FbAdAccount {
   lastSyncedAt    DateTime?
   dailyInsights   DailyInsight[]
   automationRules AutomationRule[]
+  campaigns       FbCampaign[]
 }
 
 model FbPage {
@@ -139,5 +140,41 @@ model AutomationRule {
   isActive        Boolean     @default(true)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+}
+
+model FbCampaign {
+  id              String      @id
+  name            String
+  status          String      @default("ACTIVE")
+  effectiveStatus String      @default("ACTIVE")
+  adAccountId     String
+  adAccount       FbAdAccount @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adsets          FbAdSet[]
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+}
+
+model FbAdSet {
+  id              String     @id
+  name            String
+  status          String     @default("ACTIVE")
+  effectiveStatus String     @default("ACTIVE")
+  campaignId      String
+  campaign        FbCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads             FbAd[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model FbAd {
+  id              String   @id
+  name            String
+  status          String   @default("ACTIVE")
+  effectiveStatus String   @default("ACTIVE")
+  adsetId         String
+  adset           FbAdSet  @relation(fields: [adsetId], references: [id], onDelete: Cascade)
+  rejectionReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 

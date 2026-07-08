@@ -267,3 +267,83 @@ export async function getAdAccountInsights(
     };
   });
 }
+
+export interface FbCampaignData {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+}
+
+export async function getAdAccountCampaigns(adAccountId: string, accessToken: string): Promise<FbCampaignData[]> {
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/campaigns?fields=id,name,status,effective_status&limit=1000&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error(`Failed to fetch campaigns for ${adAccountId}:`, err.error?.message);
+    return [];
+  }
+  const data = await res.json();
+  return data.data || [];
+}
+
+export interface FbAdSetData {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  campaign_id: string;
+}
+
+export async function getAdAccountAdSets(adAccountId: string, accessToken: string): Promise<FbAdSetData[]> {
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/adsets?fields=id,name,status,effective_status,campaign{id}&limit=1000&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error(`Failed to fetch adsets for ${adAccountId}:`, err.error?.message);
+    return [];
+  }
+  const data = await res.json();
+  return (data.data || []).map((adset: any) => ({
+    id: adset.id,
+    name: adset.name,
+    status: adset.status,
+    effective_status: adset.effective_status,
+    campaign_id: adset.campaign?.id
+  }));
+}
+
+export interface FbAdData {
+  id: string;
+  name: string;
+  status: string;
+  effective_status: string;
+  adset_id: string;
+  rejection_reason?: string | null;
+}
+
+export async function getAdAccountAds(adAccountId: string, accessToken: string): Promise<FbAdData[]> {
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations&limit=1000&access_token=${accessToken}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    console.error(`Failed to fetch ads for ${adAccountId}:`, err.error?.message);
+    return [];
+  }
+  const data = await res.json();
+  return (data.data || []).map((ad: any) => {
+    const rejectionReason = ad.recommendations && Array.isArray(ad.recommendations)
+      ? ad.recommendations.map((r: any) => r.message).join("; ")
+      : null;
+
+    return {
+      id: ad.id,
+      name: ad.name,
+      status: ad.status,
+      effective_status: ad.effective_status,
+      adset_id: ad.adset?.id,
+      rejection_reason: rejectionReason
+    };
+  });
+}
+
