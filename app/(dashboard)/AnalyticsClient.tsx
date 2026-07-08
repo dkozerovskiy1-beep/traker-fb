@@ -101,10 +101,10 @@ export default function AnalyticsClient({
   const selectedAdAccount = searchParams.get("adAccount") || "ALL";
   const selectedPeriod = searchParams.get("period") || "today";
 
-  // Custom date picker states
+  // Date picker popover states
   const [customStart, setCustomStart] = useState(searchParams.get("customStartDate") || startDate);
   const [customEnd, setCustomEnd] = useState(searchParams.get("customEndDate") || endDate);
-  const [showDatePicker, setShowDatePicker] = useState(selectedPeriod === "custom");
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState(false);
 
   // Expand/Collapse state for Campaigns and AdSets
   const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
@@ -136,16 +136,9 @@ export default function AnalyticsClient({
       params.delete("adAccount");
     }
 
-    if (key === "period") {
-      if (value === "custom") {
-        setShowDatePicker(true);
-        params.set("customStartDate", customStart);
-        params.set("customEndDate", customEnd);
-      } else {
-        setShowDatePicker(false);
-        params.delete("customStartDate");
-        params.delete("customEndDate");
-      }
+    if (key === "period" && value !== "custom") {
+      params.delete("customStartDate");
+      params.delete("customEndDate");
     }
 
     router.push(`/?${params.toString()}`);
@@ -157,6 +150,24 @@ export default function AnalyticsClient({
     params.set("customStartDate", customStart);
     params.set("customEndDate", customEnd);
     router.push(`/?${params.toString()}`);
+  };
+
+  const getDateRangeLabel = () => {
+    if (selectedPeriod === "today") return "Сьогодні";
+    if (selectedPeriod === "yesterday") return "Вчора";
+    if (selectedPeriod === "last7") return "Останні 7 днів";
+    if (selectedPeriod === "last30") return "Останні 30 днів";
+    if (selectedPeriod === "month") return "Цей місяць";
+    if (selectedPeriod === "custom") {
+      const formatStringDate = (dStr: string) => {
+        if (!dStr) return "";
+        const parts = dStr.split("-");
+        if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+        return dStr;
+      };
+      return `${formatStringDate(customStart)} - ${formatStringDate(customEnd)}`;
+    }
+    return "Вибір дат";
   };
 
   // Helper metric calculations
@@ -184,69 +195,155 @@ export default function AnalyticsClient({
   return (
     <>
       {/* Top Title & Filters Row */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px", marginBottom: "8px" }}>
         <div>
           <h1>Панель аналітики</h1>
           <p className="subtitle">Показники ефективності реклами у Facebook</p>
         </div>
         
-        {/* Date Selector & Picker */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "10px" }}>
-          <div style={{ display: "flex", gap: "8px", backgroundColor: "var(--bg-card)", border: "1px solid var(--border-color)", padding: "4px", borderRadius: "var(--radius-sm)" }}>
-            {["today", "yesterday", "last7", "last30", "month", "custom"].map((p) => {
-              const labelMap: Record<string, string> = {
-                today: "Сьогодні",
-                yesterday: "Вчора",
-                last7: "7 днів",
-                last30: "30 днів",
-                month: "Цей місяць",
-                custom: "Кастомний"
-              };
-              const active = selectedPeriod === p;
-              return (
-                <button
-                  key={p}
-                  className="btn"
-                  style={{
-                    padding: "6px 12px",
-                    fontSize: "12px",
-                    backgroundColor: active ? "var(--bg-input)" : "transparent",
-                    color: active ? "var(--color-accent)" : "var(--text-secondary)",
-                    border: "none",
-                    boxShadow: "none"
-                  }}
-                  onClick={() => updateFilters("period", p)}
-                >
-                  {labelMap[p]}
-                </button>
-              );
-            })}
-          </div>
+        {/* Unified Date Picker Popover */}
+        <div style={{ position: "relative" }}>
+          <button
+            className="btn btn-secondary"
+            onClick={() => setIsDateDropdownOpen(!isDateDropdownOpen)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "8px 16px",
+              backgroundColor: "var(--bg-card)",
+              border: "1px solid var(--border-color)",
+              color: "white",
+              fontWeight: "600",
+              cursor: "pointer",
+              borderRadius: "var(--radius-sm)",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.2)"
+            }}
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+              <line x1="16" y1="2" x2="16" y2="6" />
+              <line x1="8" y1="2" x2="8" y2="6" />
+              <line x1="3" y1="10" x2="21" y2="10" />
+            </svg>
+            <span>{getDateRangeLabel()}</span>
+            <span style={{ fontSize: "10px", color: "var(--text-muted)", marginLeft: "4px" }}>{isDateDropdownOpen ? "▲" : "▼"}</span>
+          </button>
 
-          {showDatePicker && (
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", backgroundColor: "var(--bg-card)", border: "1px solid var(--border-color)", padding: "10px", borderRadius: "var(--radius-sm)" }}>
-              <input
-                type="date"
-                className="form-input"
-                style={{ padding: "5px", fontSize: "12px", width: "130px", color: "white" }}
-                value={customStart}
-                onChange={(e) => setCustomStart(e.target.value)}
-              />
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>до</span>
-              <input
-                type="date"
-                className="form-input"
-                style={{ padding: "5px", fontSize: "12px", width: "130px", color: "white" }}
-                value={customEnd}
-                onChange={(e) => setCustomEnd(e.target.value)}
-              />
-              <button
-                className="btn btn-primary"
-                style={{ padding: "6px 12px", fontSize: "12px" }}
-                onClick={applyCustomDates}
-              >
-                Застосувати
-              </button>
+          {isDateDropdownOpen && (
+            <div style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              right: 0,
+              zIndex: 100,
+              backgroundColor: "rgba(18, 18, 18, 0.98)",
+              backdropFilter: "blur(20px)",
+              border: "1px solid var(--border-color-glow)",
+              boxShadow: "0 15px 40px rgba(0,0,0,0.8), 0 0 20px rgba(16, 185, 129, 0.08)",
+              borderRadius: "10px",
+              padding: "20px",
+              display: "flex",
+              gap: "20px",
+              minWidth: "480px"
+            }}>
+              {/* Presets List */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", width: "160px", borderRight: "1px solid var(--border-color)", paddingRight: "16px" }}>
+                <span style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: "4px", letterSpacing: "0.5px" }}>Швидкі вибори</span>
+                {["today", "yesterday", "last7", "last30", "month"].map((p) => {
+                  const labelMap: Record<string, string> = {
+                    today: "Сьогодні",
+                    yesterday: "Вчора",
+                    last7: "7 днів",
+                    last30: "30 днів",
+                    month: "Цей місяць"
+                  };
+                  const active = selectedPeriod === p;
+                  return (
+                    <button
+                      key={p}
+                      style={{
+                        padding: "8px 12px",
+                        textAlign: "left",
+                        fontSize: "13px",
+                        backgroundColor: active ? "rgba(16, 185, 129, 0.12)" : "transparent",
+                        color: active ? "var(--color-accent)" : "var(--text-secondary)",
+                        border: "none",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        transition: "all 0.2s",
+                        fontWeight: active ? "600" : "500"
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!active) {
+                          e.currentTarget.style.color = "white";
+                          e.currentTarget.style.backgroundColor = "rgba(255, 255, 255, 0.03)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!active) {
+                          e.currentTarget.style.color = "var(--text-secondary)";
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }
+                      }}
+                      onClick={() => {
+                        updateFilters("period", p);
+                        setIsDateDropdownOpen(false);
+                      }}
+                    >
+                      {labelMap[p]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Custom Date Inputs */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
+                <span style={{ fontSize: "10px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px" }}>Вибір дат</span>
+                
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div className="form-group" style={{ marginBottom: "8px" }}>
+                    <label className="form-label" style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px" }}>З дати:</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      style={{ color: "white", padding: "6px 10px", fontSize: "13px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)" }}
+                      value={customStart}
+                      onChange={(e) => setCustomStart(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: "8px" }}>
+                    <label className="form-label" style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "4px" }}>По дату:</label>
+                    <input
+                      type="date"
+                      className="form-input"
+                      style={{ color: "white", padding: "6px 10px", fontSize: "13px", backgroundColor: "var(--bg-input)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)" }}
+                      value={customEnd}
+                      onChange={(e) => setCustomEnd(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px", borderTop: "1px solid var(--border-color)", paddingTop: "12px" }}>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ padding: "6px 12px", fontSize: "12px" }}
+                    onClick={() => setIsDateDropdownOpen(false)}
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: "6px 12px", fontSize: "12px" }}
+                    onClick={() => {
+                      applyCustomDates();
+                      setIsDateDropdownOpen(false);
+                    }}
+                  >
+                    Застосувати
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
