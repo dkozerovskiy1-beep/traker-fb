@@ -136,16 +136,22 @@ export async function GET(req: Request) {
       });
     }
 
-    // 8. Redirect back to dashboard accounts list with success parameter
+    // 8. Redirect back to public invite success page
     const protocol = req.headers.get("x-forwarded-proto") || "http";
     const host = req.headers.get("host") || "localhost:3000";
-    return NextResponse.redirect(`${protocol}://${host}/accounts?success=true`);
+    return NextResponse.redirect(`${protocol}://${host}/invite/${state}/success`);
   } catch (error: any) {
     console.error("Facebook OAuth callback error:", error);
     const protocol = req.headers.get("x-forwarded-proto") || "http";
     const host = req.headers.get("host") || "localhost:3000";
-    return NextResponse.redirect(
-      `${protocol}://${host}/accounts?error=${encodeURIComponent(error.message || "Failed to authorize Facebook account")}`
-    );
+    const url = new URL(req.url);
+    const stateVal = url.searchParams.get("state") || "";
+    
+    if (stateVal) {
+      return NextResponse.redirect(
+        `${protocol}://${host}/invite/${stateVal}?error=${encodeURIComponent(error.message || "Failed to authorize Facebook account")}`
+      );
+    }
+    return NextResponse.redirect(`${protocol}://${host}/login`);
   }
 }
