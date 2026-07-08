@@ -1,4 +1,4 @@
-import { db } from "./lib/db";
+import { db } from "../lib/db";
 import AnalyticsClient from "./AnalyticsClient";
 
 export const dynamic = "force-dynamic";
