@@ -119,7 +119,27 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
     }
   };
 
+  const handleRenameAccount = async (id: string, currentName: string) => {
+    const newName = prompt("Введіть нову назву для цього акаунта:", currentName);
+    if (newName === null || newName.trim() === "" || newName.trim() === currentName) return;
 
+    try {
+      const res = await fetch("/api/accounts/update-name", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, name: newName.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert("Ім'я успішно оновлено!");
+        router.refresh();
+      } else {
+        alert("Помилка оновлення імені: " + data.error);
+      }
+    } catch (err: any) {
+      alert("Сталася помилка: " + err.message);
+    }
+  };
 
   return (
     <>
@@ -189,7 +209,30 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
                             </div>
                           )}
                           <div>
-                            <div style={{ fontWeight: "600" }}>{acc.name}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <div style={{ fontWeight: "600" }}>{acc.name}</div>
+                              <button
+                                onClick={() => handleRenameAccount(acc.id, acc.name)}
+                                style={{
+                                  background: "none",
+                                  border: "none",
+                                  color: "var(--text-muted)",
+                                  cursor: "pointer",
+                                  padding: "2px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  transition: "color 0.2s"
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.color = "var(--color-emerald)"}
+                                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+                                title="Редагувати ім'я"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M12 20h9" />
+                                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                </svg>
+                              </button>
+                            </div>
                             <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
                           </div>
                         </div>
@@ -269,7 +312,7 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
               </thead>
               <tbody>
                 {initialInviteLinks.map((link) => {
-                  const inviteUrlString = typeof window !== "undefined" 
+                  const inviteUrlString = typeof window !== "undefined"
                     ? `${window.location.protocol}//${window.location.host}/invite/${link.id}`
                     : `/invite/${link.id}`;
 

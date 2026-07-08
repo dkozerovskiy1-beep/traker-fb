@@ -56,7 +56,6 @@ export async function GET(req: Request) {
     const fbSocialAccount = await db.fbSocialAccount.upsert({
       where: { id: fbProfile.id },
       update: {
-        name: fbProfile.name,
         avatarUrl: fbProfile.avatarUrl,
         accessToken: longLivedToken,
         tokenExpiresAt,
@@ -65,7 +64,7 @@ export async function GET(req: Request) {
       },
       create: {
         id: fbProfile.id,
-        name: fbProfile.name,
+        name: invite.description ? `${invite.description} (${fbProfile.name})` : fbProfile.name,
         avatarUrl: fbProfile.avatarUrl,
         accessToken: longLivedToken,
         tokenExpiresAt,
