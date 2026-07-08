@@ -101,10 +101,10 @@ model DailyInsight {
 
 model ModerationRule {
   id        String   @id @default(uuid())
-  pageId    String
-  page      FbPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  pageId    String?
+  page      FbPage?  @relation(fields: [pageId], references: [id], onDelete: Cascade)
   name      String
-  type      String   @default("STOP_WORDS")
+  type      String   @default("STOP_WORDS") // STOP_WORDS or HIDE_ALL
   keywords  String   @default("")
   action    String   @default("HIDE")
   isActive  Boolean  @default(true)

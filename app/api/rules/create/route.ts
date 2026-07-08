@@ -6,9 +6,9 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const { name, pageId, type, keywords, action } = body;
 
-    if (!name || !pageId || !type) {
+    if (!name || !type) {
       return NextResponse.json(
-        { success: false, error: "Missing required fields (name, pageId, type)" },
+        { success: false, error: "Missing required fields (name, type)" },
         { status: 400 }
       );
     }
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     const rule = await db.moderationRule.create({
       data: {
         name,
-        pageId,
+        pageId: pageId && pageId !== "ALL" ? pageId : null,
         type,
         keywords: keywords || "",
         action: action || "HIDE"

@@ -67,9 +67,15 @@ export async function POST(req: Request) {
           // Don't moderate comments created by the page itself to prevent infinite loop
           if (authorFbId === pageId) continue;
 
-          // Fetch active moderation rules for this Page
+          // Fetch active moderation rules for this Page OR global rules (pageId is null)
           const activeRules = await db.moderationRule.findMany({
-            where: { pageId, isActive: true }
+            where: {
+              isActive: true,
+              OR: [
+                { pageId },
+                { pageId: null }
+              ]
+            }
           });
 
           for (const rule of activeRules) {
@@ -86,6 +92,8 @@ export async function POST(req: Request) {
               // Matches telegram link formats or handles with "@"
               const tgRegex = /(t\.me|telegram\.me|@[\w_]{5,})/gi;
               matchesRule = tgRegex.test(commentText);
+            } else if (rule.type === "HIDE_ALL") {
+              matchesRule = true;
             }
 
             if (matchesRule) {

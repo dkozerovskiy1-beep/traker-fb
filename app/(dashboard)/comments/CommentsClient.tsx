@@ -43,7 +43,7 @@ export default function CommentsClient({ pages, rules, logs }: CommentsClientPro
   
   // New Rule Form State
   const [ruleName, setRuleName] = useState("");
-  const [rulePageId, setRulePageId] = useState(pages[0]?.id || "");
+  const [rulePageId, setRulePageId] = useState("ALL");
   const [ruleType, setRuleType] = useState("STOP_WORDS");
   const [keywords, setKeywords] = useState("");
   const [action, setAction] = useState("HIDE");
@@ -56,7 +56,7 @@ export default function CommentsClient({ pages, rules, logs }: CommentsClientPro
 
   const filteredRules = selectedPage === "ALL"
     ? rules
-    : rules.filter(r => r.pageId === selectedPage);
+    : rules.filter(r => r.pageId === selectedPage || !r.pageId);
 
   // Stats calculation
   const totalModerated = filteredLogs.length;
@@ -194,7 +194,17 @@ export default function CommentsClient({ pages, rules, logs }: CommentsClientPro
                     </button>
                   </div>
                   <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                    Тригер: <span style={{ color: "white" }}>{rule.type}</span>
+                    Сторінка: <span style={{ color: "white" }}>
+                      {rule.pageId ? (pages.find(p => p.id === rule.pageId)?.name || "Невідома") : "Всі сторінки (Глобально)"}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                    Тригер: <span style={{ color: "white" }}>
+                      {rule.type === "STOP_WORDS" && "Містить стоп-слова"}
+                      {rule.type === "LINKS" && "Містить посилання"}
+                      {rule.type === "TELEGRAM" && "Містить Telegram-посилання"}
+                      {rule.type === "HIDE_ALL" && "Приховати всі коментарі"}
+                    </span>
                   </div>
                   {rule.type === "STOP_WORDS" && (
                     <div style={{ fontSize: "12px", color: "var(--text-secondary)", wordBreak: "break-all" }}>
@@ -301,6 +311,7 @@ export default function CommentsClient({ pages, rules, logs }: CommentsClientPro
                   onChange={(e) => setRulePageId(e.target.value)}
                   style={{ color: "white", cursor: "pointer" }}
                 >
+                  <option value="ALL">Всі сторінки (Масово)</option>
                   {pages.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -318,6 +329,7 @@ export default function CommentsClient({ pages, rules, logs }: CommentsClientPro
                   <option value="STOP_WORDS">Містить Стоп-слова</option>
                   <option value="LINKS">Містить будь-яке посилання (URL)</option>
                   <option value="TELEGRAM">Посилання на Telegram / юзернейм (@)</option>
+                  <option value="HIDE_ALL">Приховувати абсолютно всі коментарі</option>
                 </select>
               </div>
 
