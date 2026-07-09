@@ -19,7 +19,7 @@ export async function GET() {
     const pages = await db.fbPage.findMany({
       include: {
         socialAccount: {
-          select: { name: true }
+          select: { id: true, name: true, accessToken: true }
         }
       }
     });
@@ -27,7 +27,7 @@ export async function GET() {
     if (pages.length === 0) {
       return NextResponse.json({
         success: false,
-        error: "У вашій базі даних немає підключених бізнес-сторінок. Спочатку підключіть хоча б один Facebook-акаунт, який володіє сторінками."
+        error: "У вашій базі даних немає підключених бізнес-сторінок."
       });
     }
 
@@ -40,64 +40,52 @@ export async function GET() {
         pageId: page.id,
         socialProfile: page.socialAccount.name,
         hasAccessToken: !!page.accessToken,
-        postsFound: 0,
-        commentsFound: 0,
-        errors: []
+        methods: {}
       };
 
       try {
-        // Fetch promotable posts (includes unpublished ad dark posts)
-        const postsUrl = `https://graph.facebook.com/v21.0/${page.id}/promotable_posts?fields=id,created_time,message&limit=15&access_token=${page.accessToken}`;
-        const postsRes = await fetch(postsUrl);
+        const userToken = page.socialAccount.accessToken;
+
+        // Method A: Query /promotable_posts using Page Access Token
+        const urlPagePromotable = `https://graph.facebook.com/v21.0/${page.id}/promotable_posts?fields=id,created_time,message&limit=3&access_token=${page.accessToken}`;
+        const resPagePromotable = await fetch(urlPagePromotable);
         
-        if (!postsRes.ok) {
-          const errData = await postsRes.json().catch(() => ({}));
-          pageReport.errors.push({
-            step: "Fetch Posts",
-            status: postsRes.status,
-            message: errData.error?.message || "Unknown error"
-          });
-        } else {
-          const postsData = await postsRes.json();
-          const posts = postsData.data || [];
-          pageReport.postsFound = posts.length;
-          pageReport.recentPosts = posts.map((p: any) => ({
-            id: p.id,
-            message: p.message || "[Без тексту]",
-            created_time: p.created_time
-          }));
+        // Method B: Query /promotable_posts using User (Social Account) Access Token
+        const urlUserPromotable = `https://graph.facebook.com/v21.0/${page.id}/promotable_posts?fields=id,created_time,message&limit=3&access_token=${userToken}`;
+        const resUserPromotable = await fetch(urlUserPromotable);
 
-          // Fetch comments for the first post to test
-          if (posts.length > 0) {
-            const testPostId = posts[0].id;
-            const commentsUrl = `https://graph.facebook.com/v21.0/${testPostId}/comments?fields=id,message,from,created_time,is_hidden&limit=10&access_token=${page.accessToken}`;
-            const commentsRes = await fetch(commentsUrl);
+        // Method C: Query /ads_posts using Page Access Token
+        const urlPageAdsPosts = `https://graph.facebook.com/v21.0/${page.id}/ads_posts?fields=id,created_time,message&limit=3&access_token=${page.accessToken}`;
+        const resPageAdsPosts = await fetch(urlPageAdsPosts);
 
-            if (!commentsRes.ok) {
-              const errData = await commentsRes.json().catch(() => ({}));
-              pageReport.errors.push({
-                step: `Fetch Comments for post ${testPostId}`,
-                status: commentsRes.status,
-                message: errData.error?.message || "Unknown error"
-              });
-            } else {
-              const commentsData = await commentsRes.json();
-              const comments = commentsData.data || [];
-              pageReport.commentsFound = comments.length;
-              pageReport.testCommentsSample = comments.map((c: any) => ({
-                id: c.id,
-                message: c.message,
-                from: c.from?.name || "Unknown",
-                is_hidden: c.is_hidden
-              }));
-            }
+        // Method D: Try regular timeline /posts just as comparison
+        const urlPagePosts = `https://graph.facebook.com/v21.0/${page.id}/posts?fields=id,created_time,message&limit=3&access_token=${page.accessToken}`;
+        const resPagePosts = await fetch(urlPagePosts);
+
+        pageReport.methods = {
+          pagePromotable: {
+            status: resPagePromotable.status,
+            ok: resPagePromotable.ok,
+            data: await resPagePromotable.json().catch(() => ({}))
+          },
+          userPromotable: {
+            status: resUserPromotable.status,
+            ok: resUserPromotable.ok,
+            data: await resUserPromotable.json().catch(() => ({}))
+          },
+          pageAdsPosts: {
+            status: resPageAdsPosts.status,
+            ok: resPageAdsPosts.ok,
+            data: await resPageAdsPosts.json().catch(() => ({}))
+          },
+          pageTimelinePosts: {
+            status: resPagePosts.status,
+            ok: resPagePosts.ok,
+            data: await resPagePosts.json().catch(() => ({}))
           }
-        }
+        };
       } catch (e: any) {
-        pageReport.errors.push({
-          step: "System Exception",
-          message: e.message
-        });
+        pageReport.error = e.message;
       }
 
       report.push(pageReport);
