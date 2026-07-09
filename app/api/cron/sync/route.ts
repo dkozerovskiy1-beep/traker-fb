@@ -21,10 +21,17 @@ export async function GET(req: Request) {
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
   
-  // In production, we compare the Bearer token with our CRON_SECRET.
-  // For local testing, we can bypass this if CRON_SECRET is not set.
-  if (process.env.NODE_ENV === "production" && cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  // In production, we compare the Bearer token or URL ?secret query parameter with our CRON_SECRET.
+  const { searchParams } = new URL(req.url);
+  const querySecret = searchParams.get("secret");
+
+  if (process.env.NODE_ENV === "production" && cronSecret) {
+    const isHeaderAuth = authHeader === `Bearer ${cronSecret}`;
+    const isQueryAuth = querySecret === cronSecret;
+    
+    if (!isHeaderAuth && !isQueryAuth) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   try {
