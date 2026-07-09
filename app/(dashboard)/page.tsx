@@ -85,11 +85,19 @@ export default async function HomePage({ searchParams }: PageProps) {
       accountFilter.adAccountId = { in: ads.map(a => a.id) };
     }
 
-    // 3. Query daily insights
+    // 3. Query daily insights (exclude old campaign-level duplicates)
     rawInsights = await db.dailyInsight.findMany({
       where: {
         date: { gte: startDate, lte: endDate },
-        ...accountFilter
+        ...accountFilter,
+        // Safety: exclude old campaign-level rows that may still exist
+        // After switching to level=ad, old rows with adsetId="null" would cause double-counting
+        NOT: {
+          AND: [
+            { adsetId: "null" },
+            { adId: "null" }
+          ]
+        }
       }
     });
 
