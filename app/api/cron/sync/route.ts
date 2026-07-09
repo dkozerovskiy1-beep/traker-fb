@@ -106,7 +106,8 @@ export async function GET(req: Request) {
           }
         });
 
-        if (adAccount.status !== "ACTIVE") continue;
+        // Try to sync insights even for disabled/banned accounts to capture the final day's spend.
+        // If Meta API blocks it, the try/catch will handle it gracefully.
 
         try {
           const [fbCampaigns, fbAdSets, fbAds] = await Promise.all([

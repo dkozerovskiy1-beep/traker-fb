@@ -605,8 +605,10 @@ export default function AnalyticsClient({
             disabled={selectedSocial === "ALL"}
           >
             <option value="ALL">Всі рекламні кабінети ({activeAdAccounts.length})</option>
-            {activeAdAccounts.map(ad => (
-              <option key={ad.id} value={ad.id}>{ad.name}</option>
+            {filteredAdAccounts.map(ad => (
+              <option key={ad.id} value={ad.id}>
+                {ad.name} {ad.status !== "ACTIVE" ? " (🚫 Забанений)" : ""}
+              </option>
             ))}
           </select>
           {selectedSocial === "ALL" && (
