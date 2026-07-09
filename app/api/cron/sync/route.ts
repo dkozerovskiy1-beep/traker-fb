@@ -506,13 +506,13 @@ export async function GET(req: Request) {
             }
 
             if (matchesRule && !fbComment.is_hidden) {
-              const success = await moderateFacebookComment(
+              const result = await moderateFacebookComment(
                 fbComment.id,
                 rule.action as "HIDE" | "DELETE",
                 page.accessToken
               );
 
-              if (success) {
+              if (result.success) {
                 await db.moderationLog.create({
                   data: {
                     pageId: page.id,

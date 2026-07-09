@@ -100,9 +100,9 @@ export async function POST(req: Request) {
               console.log(`[MODERATION TRIGGERED] Comment "${commentText}" matches rule: ${rule.name}. Action: ${rule.action}`);
 
               // Call Facebook Graph API to hide or delete the comment
-              const success = await moderateFacebookComment(commentId, rule.action as "HIDE" | "DELETE", page.accessToken);
+              const result = await moderateFacebookComment(commentId, rule.action as "HIDE" | "DELETE", page.accessToken);
 
-              if (success) {
+              if (result.success) {
                 // Log the moderation event in the DB
                 await db.moderationLog.create({
                   data: {

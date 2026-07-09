@@ -189,7 +189,7 @@ export async function moderateFacebookComment(
   commentId: string,
   action: "HIDE" | "DELETE",
   pageAccessToken: string
-): Promise<boolean> {
+): Promise<{ success: boolean; error?: string }> {
   const baseUrl = `https://graph.facebook.com/${FB_API_VERSION}/${commentId}`;
   let url = baseUrl;
   let method = "POST";
@@ -201,14 +201,19 @@ export async function moderateFacebookComment(
     method = "DELETE";
   }
 
-  const res = await fetch(url, { method });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    console.error(`Failed to moderate comment ${commentId} with action ${action}:`, err.error?.message);
-    return false;
+  try {
+    const res = await fetch(url, { method });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      console.error(`Failed to moderate comment ${commentId} with action ${action}:`, data.error?.message);
+      return { success: false, error: data.error?.message || `HTTP ${res.status}` };
+    }
+
+    return { success: data.success === true, error: data.success ? undefined : "Facebook did not confirm success" };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
-  const data = await res.json();
-  return data.success === true;
 }
 
 /**

@@ -27,10 +27,13 @@ export async function POST(req: Request) {
     }
 
     // Call Facebook API to moderate
-    const success = await moderateFacebookComment(fbCommentId, action, comment.page.accessToken);
+    const result = await moderateFacebookComment(fbCommentId, action, comment.page.accessToken);
 
-    if (!success) {
-      return NextResponse.json({ success: false, error: "Failed to moderate comment via Facebook API" }, { status: 500 });
+    if (!result.success) {
+      return NextResponse.json({ 
+        success: false, 
+        error: result.error || "Failed to moderate comment via Facebook API" 
+      }, { status: 500 });
     }
 
     // Update comment status in DB
