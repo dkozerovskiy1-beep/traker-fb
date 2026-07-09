@@ -351,3 +351,62 @@ export async function getAdAccountAds(adAccountId: string, accessToken: string):
   });
 }
 
+export interface FbCommentData {
+  id: string;
+  message: string;
+  from?: { id: string; name: string };
+  created_time: string;
+  is_hidden: boolean;
+  postId: string;
+}
+
+/**
+ * Fetches recent comments from all posts on a Facebook Page.
+ * Goes through the page's recent feed posts and collects their comments.
+ */
+export async function getPageRecentComments(pageId: string, pageAccessToken: string): Promise<FbCommentData[]> {
+  const allComments: FbCommentData[] = [];
+
+  try {
+    // Fetch recent posts (last 25 posts)
+    const postsUrl = `https://graph.facebook.com/${FB_API_VERSION}/${pageId}/posts?fields=id&limit=25&access_token=${pageAccessToken}`;
+    const postsRes = await fetch(postsUrl);
+    if (!postsRes.ok) {
+      const err = await postsRes.json().catch(() => ({}));
+      console.error(`Failed to fetch posts for page ${pageId}:`, err.error?.message);
+      return [];
+    }
+
+    const postsData = await postsRes.json();
+    const posts = postsData.data || [];
+
+    // For each post, fetch its comments
+    for (const post of posts) {
+      try {
+        const commentsUrl = `https://graph.facebook.com/${FB_API_VERSION}/${post.id}/comments?fields=id,message,from,created_time,is_hidden&limit=100&access_token=${pageAccessToken}`;
+        const commentsRes = await fetch(commentsUrl);
+        if (!commentsRes.ok) continue;
+
+        const commentsData = await commentsRes.json();
+        const comments = commentsData.data || [];
+
+        for (const comment of comments) {
+          allComments.push({
+            id: comment.id,
+            message: comment.message || "",
+            from: comment.from,
+            created_time: comment.created_time,
+            is_hidden: comment.is_hidden || false,
+            postId: post.id
+          });
+        }
+      } catch {
+        // Skip individual post errors
+      }
+    }
+  } catch (err) {
+    console.error(`Error fetching comments for page ${pageId}:`, err);
+  }
+
+  return allComments;
+}

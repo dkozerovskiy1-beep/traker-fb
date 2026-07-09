@@ -74,6 +74,7 @@ model FbPage {
   updatedAt       DateTime        @updatedAt
   moderationRules ModerationRule[]
   moderationLogs  ModerationLog[]
+  comments        FbComment[]
 }
 
 model DailyInsight {
@@ -125,6 +126,22 @@ model ModerationLog {
   actionTaken String
   ruleMatched String?
   createdAt   DateTime @default(now())
+}
+
+model FbComment {
+  id          String   @id @default(uuid())
+  fbCommentId String   @unique
+  pageId      String
+  page        FbPage   @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  postId      String
+  message     String
+  authorName  String?
+  authorFbId  String?
+  isHidden    Boolean  @default(false)
+  status      String   @default("VISIBLE") // VISIBLE, HIDDEN, DELETED
+  fbCreatedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model AutomationRule {
