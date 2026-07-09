@@ -287,6 +287,18 @@ h2 {
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
+.badge-secondary {
+  background-color: rgba(100, 116, 139, 0.1);
+  color: var(--text-muted);
+  border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+.badge-info {
+  background-color: var(--color-info-bg);
+  color: var(--color-info);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
 /* Tables (Premium design with floating cells) */
 .table-container {
   overflow-x: auto;

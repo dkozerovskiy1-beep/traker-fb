@@ -223,9 +223,9 @@ export async function getAdAccountInsights(
 ): Promise<FbCampaignInsight[]> {
   const timeRange = JSON.stringify({ since: startDate, until: endDate });
   
-  // Fields to pull details: spend, impressions, clicks, unique_clicks, actions
-  const fields = "campaign_id,campaign_name,spend,impressions,clicks,unique_clicks,actions";
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=campaign&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
+  // Fields to pull details at ad level: campaign, adset, ad, spend, impressions, clicks, unique_clicks, actions
+  const fields = "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,unique_clicks,actions";
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -258,6 +258,10 @@ export async function getAdAccountInsights(
       date: insight.date_start, // Format: YYYY-MM-DD
       campaignId: insight.campaign_id,
       campaignName: insight.campaign_name,
+      adsetId: insight.adset_id,
+      adsetName: insight.adset_name,
+      adId: insight.ad_id,
+      adName: insight.ad_name,
       spend: parseFloat(insight.spend || "0"),
       impressions: parseInt(insight.impressions || "0", 10),
       clicks: parseInt(insight.clicks || "0", 10),

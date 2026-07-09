@@ -57,6 +57,7 @@ model FbAdAccount {
   socialAccountId String
   socialAccount   FbSocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   lastSyncedAt    DateTime?
+  disabledAt      DateTime?
   dailyInsights   DailyInsight[]
   automationRules AutomationRule[]
   campaigns       FbCampaign[]

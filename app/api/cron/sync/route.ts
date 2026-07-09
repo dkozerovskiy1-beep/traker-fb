@@ -72,13 +72,19 @@ export async function GET(req: Request) {
           );
         }
 
+        // Track disabledAt date when transitioning to DISABLED
+        const disabledAtValue = (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED")
+          ? new Date()
+          : (newStatus === "ACTIVE" ? null : (oldAdAccount as any)?.disabledAt || null);
+
         const adAccount = await db.fbAdAccount.upsert({
           where: { id: fbAdAcc.id },
           update: {
             name: fbAdAcc.name || `Ad Account ${fbAdAcc.id}`,
             currency: fbAdAcc.currency || "USD",
             timezoneName: fbAdAcc.timezone_name || "UTC",
-            status: newStatus
+            status: newStatus,
+            ...(disabledAtValue !== undefined ? { disabledAt: disabledAtValue } : {})
           },
           create: {
             id: fbAdAcc.id,
@@ -86,7 +92,8 @@ export async function GET(req: Request) {
             currency: fbAdAcc.currency || "USD",
             timezoneName: fbAdAcc.timezone_name || "UTC",
             status: newStatus,
-            socialAccountId: socialAccount.id
+            socialAccountId: socialAccount.id,
+            ...(newStatus === "DISABLED" ? { disabledAt: new Date() } : {})
           }
         });
 
@@ -231,6 +238,8 @@ export async function GET(req: Request) {
               },
               update: {
                 campaignName: insight.campaignName,
+                adsetName: insight.adsetName,
+                adName: insight.adName,
                 spend: insight.spend,
                 impressions: insight.impressions,
                 clicks: insight.clicks,
@@ -248,7 +257,9 @@ export async function GET(req: Request) {
                 campaignId: insight.campaignId,
                 campaignName: insight.campaignName,
                 adsetId: insight.adsetId || "null",
+                adsetName: insight.adsetName,
                 adId: insight.adId || "null",
+                adName: insight.adName,
                 spend: insight.spend,
                 impressions: insight.impressions,
                 clicks: insight.clicks,

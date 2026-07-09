@@ -8,6 +8,7 @@ interface AdAccountOption {
   name: string;
   socialAccountId: string;
   status: string;
+  disabledAt?: string | null;
 }
 
 interface SocialAccountOption {
@@ -82,6 +83,29 @@ interface AnalyticsClientProps {
   endDate: string;
 }
 
+// Status badge component
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    ACTIVE: { label: "Активна", cls: "badge-success" },
+    PAUSED: { label: "Пауза", cls: "badge-secondary" },
+    DISAPPROVED: { label: "Відхилено", cls: "badge-error" },
+    PENDING_REVIEW: { label: "На модерації", cls: "badge-warning" },
+    DISABLED: { label: "Забанено", cls: "badge-error" },
+    ARCHIVED: { label: "В архіві", cls: "badge-secondary" },
+    DELETED: { label: "Видалено", cls: "badge-secondary" },
+    CAMPAIGN_PAUSED: { label: "Пауза кампанії", cls: "badge-secondary" },
+    ADSET_PAUSED: { label: "Пауза групи", cls: "badge-secondary" },
+    IN_PROCESS: { label: "В обробці", cls: "badge-warning" },
+    WITH_ISSUES: { label: "Є проблеми", cls: "badge-warning" },
+  };
+  const info = map[status] || { label: status, cls: "badge-secondary" };
+  return (
+    <span className={`badge ${info.cls}`} style={{ fontSize: "10px", padding: "3px 8px" }}>
+      {info.label}
+    </span>
+  );
+}
+
 export default function AnalyticsClient({
   adAccounts,
   socialAccounts,
@@ -143,22 +167,22 @@ export default function AnalyticsClient({
     }
   };
 
-  // Expand/Collapse state for Campaigns and AdSets
-  const [expandedCampaigns, setExpandedCampaigns] = useState<Record<string, boolean>>({});
-  const [expandedAdSets, setExpandedAdSets] = useState<Record<string, boolean>>({});
+  // Navigation state: drill-down level
+  type DrillLevel = "campaigns" | "adsets" | "ads";
+  const [drillLevel, setDrillLevel] = useState<DrillLevel>("campaigns");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [selectedAdSetId, setSelectedAdSetId] = useState<string | null>(null);
 
-  const toggleCampaign = (id: string) => {
-    setExpandedCampaigns(prev => ({ ...prev, [id]: !prev[id] }));
-  };
-
-  const toggleAdSet = (id: string) => {
-    setExpandedAdSets(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+  // Banned accounts tab
+  const [showBannedTab, setShowBannedTab] = useState(false);
 
   // Filter Ad Accounts based on selected Social Account
   const filteredAdAccounts = selectedSocial === "ALL"
     ? adAccounts
     : adAccounts.filter(ad => ad.socialAccountId === selectedSocial);
+
+  const activeAdAccounts = filteredAdAccounts.filter(a => a.status === "ACTIVE");
+  const bannedAdAccounts = filteredAdAccounts.filter(a => a.status !== "ACTIVE");
 
   const updateFilters = (key: string, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -220,7 +244,7 @@ export default function AnalyticsClient({
     const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Monday = 0, Sunday = 6
     const totalDays = new Date(year, month + 1, 0).getDate();
 
-    const daysArray = [];
+    const daysArray: (Date | null)[] = [];
     for (let i = 0; i < firstDayIndex; i++) {
       daysArray.push(null);
     }
@@ -321,6 +345,66 @@ export default function AnalyticsClient({
 
     return { spend, impressions, clicks, leads, ctr, cpc, cpm, cpl };
   };
+
+  // Drill-down navigation helpers
+  const selectedCampaign = selectedCampaignId ? campaignsList.find(c => c.id === selectedCampaignId) : null;
+  const selectedAdSet = selectedCampaign && selectedAdSetId
+    ? selectedCampaign.adsets.find(s => s.id === selectedAdSetId)
+    : null;
+
+  const handleCampaignClick = (campaignId: string) => {
+    setSelectedCampaignId(campaignId);
+    setSelectedAdSetId(null);
+    setDrillLevel("adsets");
+  };
+
+  const handleAdSetClick = (adsetId: string) => {
+    setSelectedAdSetId(adsetId);
+    setDrillLevel("ads");
+  };
+
+  const navigateToCampaigns = () => {
+    setDrillLevel("campaigns");
+    setSelectedCampaignId(null);
+    setSelectedAdSetId(null);
+  };
+
+  const navigateToAdSets = () => {
+    setDrillLevel("adsets");
+    setSelectedAdSetId(null);
+  };
+
+  // Build data for current level
+  const currentCampaigns = campaignsList;
+  const currentAdSets = selectedCampaign ? selectedCampaign.adsets : [];
+  const currentAds = selectedAdSet ? selectedAdSet.ads : [];
+
+  // Metric table headers
+  const metricHeaders = (
+    <>
+      <th>Витрати</th>
+      <th>Покази</th>
+      <th>Кліки</th>
+      <th>CTR</th>
+      <th>CPC</th>
+      <th>CPM</th>
+      <th>Ліди</th>
+      <th>CPL</th>
+    </>
+  );
+
+  const MetricCells = ({ m }: { m: ReturnType<typeof getSummedMetrics> }) => (
+    <>
+      <td style={{ fontWeight: "600" }}>${m.spend.toFixed(2)}</td>
+      <td>{m.impressions.toLocaleString()}</td>
+      <td>{m.clicks.toLocaleString()}</td>
+      <td>{m.ctr.toFixed(2)}%</td>
+      <td>${m.cpc.toFixed(2)}</td>
+      <td>${m.cpm.toFixed(2)}</td>
+      <td><strong style={{ color: "var(--color-success)" }}>{m.leads}</strong></td>
+      <td>{m.leads > 0 ? `$${m.cpl.toFixed(2)}` : "—"}</td>
+    </>
+  );
 
   return (
     <>
@@ -482,7 +566,7 @@ export default function AnalyticsClient({
                         setIsDateDropdownOpen(false);
                       }}
                     >
-                      Оновити
+                      Застосувати
                     </button>
                   </div>
                 </div>
@@ -520,9 +604,9 @@ export default function AnalyticsClient({
             style={{ color: "white", cursor: "pointer" }}
             disabled={selectedSocial === "ALL"}
           >
-            <option value="ALL">Всі рекламні кабінети ({filteredAdAccounts.length})</option>
-            {filteredAdAccounts.map(ad => (
-              <option key={ad.id} value={ad.id}>{ad.name} {ad.status !== "ACTIVE" ? `(${ad.status})` : ""}</option>
+            <option value="ALL">Всі рекламні кабінети ({activeAdAccounts.length})</option>
+            {activeAdAccounts.map(ad => (
+              <option key={ad.id} value={ad.id}>{ad.name}</option>
             ))}
           </select>
           {selectedSocial === "ALL" && (
@@ -576,233 +660,414 @@ export default function AnalyticsClient({
         {selectedSocial === "ALL" ? (
           /* LEVEL 1: SOCIAL PROFILES OVERVIEW */
           <>
-            <h2 style={{ marginBottom: "20px" }}>Зведення по соціальних акаунтах</h2>
-            <div className="table-container">
-              <table className="custom-table">
-                <thead>
-                  <tr>
-                    <th>Соціальний акаунт</th>
-                    <th>Витрати</th>
-                    <th>Покази</th>
-                    <th>Кліки</th>
-                    <th>CTR</th>
-                    <th>CPC</th>
-                    <th>CPM</th>
-                    <th>Результати (Ліди)</th>
-                    <th>CPR (CPL)</th>
-                    <th>Дії</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {socialAccountsSummary.map((sa) => {
-                    const saCTR = sa.impressions > 0 ? (sa.clicks / sa.impressions) * 100 : 0;
-                    const saCPC = sa.clicks > 0 ? sa.spend / sa.clicks : 0;
-                    const saCPM = sa.impressions > 0 ? (sa.spend / sa.impressions) * 1000 : 0;
-                    const saCPL = sa.leads > 0 ? sa.spend / sa.leads : 0;
-
-                    return (
-                      <tr key={sa.id}>
-                        <td>
-                          <strong style={{ color: "white", fontSize: "14px" }}>{sa.name}</strong>
-                          <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>ID: {sa.id}</div>
-                        </td>
-                        <td>${sa.spend.toFixed(2)}</td>
-                        <td>{sa.impressions.toLocaleString()}</td>
-                        <td>{sa.clicks.toLocaleString()}</td>
-                        <td>{saCTR.toFixed(2)}%</td>
-                        <td>${saCPC.toFixed(2)}</td>
-                        <td>${saCPM.toFixed(2)}</td>
-                        <td>
-                          <strong style={{ color: "var(--color-success)" }}>{sa.leads}</strong>
-                        </td>
-                        <td>{sa.leads > 0 ? `$${saCPL.toFixed(2)}` : "—"}</td>
-                        <td>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "6px 12px", fontSize: "12px" }}
-                            onClick={() => updateFilters("socialAccount", sa.id)}
-                          >
-                            Детальніше
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            {/* Active / Banned tabs */}
+            <div style={{ display: "flex", gap: "0", marginBottom: "20px", borderBottom: "1px solid var(--border-color)" }}>
+              <button
+                type="button"
+                onClick={() => setShowBannedTab(false)}
+                style={{
+                  padding: "12px 24px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  color: !showBannedTab ? "var(--color-accent)" : "var(--text-secondary)",
+                  background: "none",
+                  border: "none",
+                  borderBottom: !showBannedTab ? "2px solid var(--color-accent)" : "2px solid transparent",
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+              >
+                Зведення по акаунтах
+              </button>
+              {bannedAdAccounts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowBannedTab(true)}
+                  style={{
+                    padding: "12px 24px",
+                    fontSize: "13px",
+                    fontWeight: "600",
+                    color: showBannedTab ? "var(--color-error)" : "var(--text-secondary)",
+                    background: "none",
+                    border: "none",
+                    borderBottom: showBannedTab ? "2px solid var(--color-error)" : "2px solid transparent",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px"
+                  }}
+                >
+                  Забанені кабінети
+                  <span style={{
+                    background: "var(--color-error-bg)",
+                    color: "var(--color-error)",
+                    borderRadius: "10px",
+                    padding: "2px 8px",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    border: "1px solid rgba(239, 68, 68, 0.2)"
+                  }}>
+                    {bannedAdAccounts.length}
+                  </span>
+                </button>
+              )}
             </div>
-          </>
-        ) : (
-          /* LEVEL 2 & 3: CAMPAIGNS -> ADSETS -> ADS HIERARCHICAL DRILL DOWN */
-          <>
-            <h2 style={{ marginBottom: "20px" }}>Ієрархія рекламних кампаній</h2>
-            {campaignsList.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
-                Немає завантажених кампаній для цього акаунта. Переконайтеся, що синхронізація (крон) успішно завершилася.
-              </div>
-            ) : (
+
+            {showBannedTab ? (
+              /* BANNED ACCOUNTS TABLE */
               <div className="table-container">
                 <table className="custom-table">
                   <thead>
                     <tr>
-                      <th style={{ width: "35%" }}>Назва об'єкта</th>
-                      <th style={{ width: "12%" }}>Статус</th>
+                      <th>Рекламний кабінет</th>
+                      <th>Профіль</th>
+                      <th>Статус</th>
+                      <th>Дата бану</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bannedAdAccounts.map(acc => {
+                      const social = socialAccounts.find(s => s.id === acc.socialAccountId);
+                      return (
+                        <tr key={acc.id}>
+                          <td>
+                            <strong style={{ color: "white" }}>{acc.name}</strong>
+                            <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>ID: {acc.id}</div>
+                          </td>
+                          <td style={{ color: "var(--text-secondary)" }}>{social?.name || "—"}</td>
+                          <td><StatusBadge status={acc.status} /></td>
+                          <td style={{ color: "var(--text-secondary)", fontSize: "13px" }}>
+                            {acc.disabledAt
+                              ? new Date(acc.disabledAt).toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+                              : "Дата невідома"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {bannedAdAccounts.length === 0 && (
+                      <tr>
+                        <td colSpan={4} style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)" }}>
+                          Немає забанених кабінетів 🎉
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* SOCIAL ACCOUNTS SUMMARY TABLE */
+              <div className="table-container">
+                <table className="custom-table">
+                  <thead>
+                    <tr>
+                      <th>Соціальний акаунт</th>
                       <th>Витрати</th>
                       <th>Покази</th>
                       <th>Кліки</th>
                       <th>CTR</th>
                       <th>CPC</th>
                       <th>CPM</th>
-                      <th>Ліди</th>
-                      <th>CPL</th>
+                      <th>Результати (Ліди)</th>
+                      <th>CPR (CPL)</th>
+                      <th>Дії</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {campaignsList.map((campaign) => {
-                      const cMetrics = getSummedMetrics((i) => i.campaignId === campaign.id);
-                      const isCampExpanded = !!expandedCampaigns[campaign.id];
+                    {socialAccountsSummary.map((sa) => {
+                      const saCTR = sa.impressions > 0 ? (sa.clicks / sa.impressions) * 100 : 0;
+                      const saCPC = sa.clicks > 0 ? sa.spend / sa.clicks : 0;
+                      const saCPM = sa.impressions > 0 ? (sa.spend / sa.impressions) * 1000 : 0;
+                      const saCPL = sa.leads > 0 ? sa.spend / sa.leads : 0;
 
                       return (
-                        <tr key={campaign.id} style={{ borderLeft: "3px solid var(--color-emerald)" }}>
-                          {/* CAMPAIGN ROW */}
+                        <tr key={sa.id}>
                           <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <button
-                                onClick={() => toggleCampaign(campaign.id)}
-                                style={{
-                                  background: "none",
-                                  border: "none",
-                                  color: "var(--text-secondary)",
-                                  cursor: "pointer",
-                                  fontSize: "14px",
-                                  padding: "4px"
-                                }}
-                              >
-                                {isCampExpanded ? "▼" : "▶"}
-                              </button>
-                              <div>
-                                <span style={{ fontWeight: "700", color: "white" }}>📁 Кампанія: {campaign.name}</span>
-                                <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>ID: {campaign.id}</div>
-                              </div>
-                            </div>
+                            <strong style={{ color: "white", fontSize: "14px" }}>{sa.name}</strong>
                           </td>
+                          <td>${sa.spend.toFixed(2)}</td>
+                          <td>{sa.impressions.toLocaleString()}</td>
+                          <td>{sa.clicks.toLocaleString()}</td>
+                          <td>{saCTR.toFixed(2)}%</td>
+                          <td>${saCPC.toFixed(2)}</td>
+                          <td>${saCPM.toFixed(2)}</td>
                           <td>
-                            <span className={`badge ${campaign.effectiveStatus === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "3px 6px" }}>
-                              {campaign.effectiveStatus === "ACTIVE" ? "Активна" : "Пауза"}
-                            </span>
+                            <strong style={{ color: "var(--color-success)" }}>{sa.leads}</strong>
                           </td>
-                          <td style={{ fontWeight: "600" }}>${cMetrics.spend.toFixed(2)}</td>
-                          <td>{cMetrics.impressions.toLocaleString()}</td>
-                          <td>{cMetrics.clicks.toLocaleString()}</td>
-                          <td>{cMetrics.ctr.toFixed(2)}%</td>
-                          <td>${cMetrics.cpc.toFixed(2)}</td>
-                          <td>${cMetrics.cpm.toFixed(2)}</td>
+                          <td>{sa.leads > 0 ? `$${saCPL.toFixed(2)}` : "—"}</td>
                           <td>
-                            <strong style={{ color: "var(--color-success)" }}>{cMetrics.leads}</strong>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "6px 12px", fontSize: "12px" }}
+                              onClick={() => updateFilters("socialAccount", sa.id)}
+                            >
+                              Детальніше
+                            </button>
                           </td>
-                          <td>{cMetrics.leads > 0 ? `$${cMetrics.cpl.toFixed(2)}` : "—"}</td>
                         </tr>
                       );
-                    })}
-
-                    {/* ADSET & ADS ROWS (Drawn recursively if expanded) */}
-                    {campaignsList.flatMap((campaign) => {
-                      const isCampExpanded = !!expandedCampaigns[campaign.id];
-                      if (!isCampExpanded) return [];
-
-                      return campaign.adsets.flatMap((adset) => {
-                        const sMetrics = getSummedMetrics((i) => i.adsetId === adset.id);
-                        const isAdsetExpanded = !!expandedAdSets[adset.id];
-
-                        const adsetRow = (
-                          <tr key={adset.id} style={{ backgroundColor: "rgba(255, 255, 255, 0.015)", borderLeft: "3px solid #818cf8" }}>
-                            <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingLeft: "24px" }}>
-                                <button
-                                  onClick={() => toggleAdSet(adset.id)}
-                                  style={{
-                                    background: "none",
-                                    border: "none",
-                                    color: "var(--text-secondary)",
-                                    cursor: "pointer",
-                                    fontSize: "12px",
-                                    padding: "2px"
-                                  }}
-                                >
-                                  {isAdsetExpanded ? "▼" : "▶"}
-                                </button>
-                                <div>
-                                  <span style={{ fontWeight: "600", color: "#e0e7ff" }}>↳ 📦 Група: {adset.name}</span>
-                                  <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "2px" }}>ID: {adset.id}</div>
-                                </div>
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`badge ${adset.effectiveStatus === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "9px", padding: "2px 5px", opacity: 0.85 }}>
-                                {adset.effectiveStatus === "ACTIVE" ? "Активна" : "Пауза"}
-                              </span>
-                            </td>
-                            <td>${sMetrics.spend.toFixed(2)}</td>
-                            <td>{sMetrics.impressions.toLocaleString()}</td>
-                            <td>{sMetrics.clicks.toLocaleString()}</td>
-                            <td>{sMetrics.ctr.toFixed(2)}%</td>
-                            <td>${sMetrics.cpc.toFixed(2)}</td>
-                            <td>${sMetrics.cpm.toFixed(2)}</td>
-                            <td>
-                              <strong style={{ color: "var(--color-success)" }}>{sMetrics.leads}</strong>
-                            </td>
-                            <td>{sMetrics.leads > 0 ? `$${sMetrics.cpl.toFixed(2)}` : "—"}</td>
-                          </tr>
-                        );
-
-                        if (!isAdsetExpanded) return [adsetRow];
-
-                        const adRows = adset.ads.map((ad) => {
-                          const aMetrics = getSummedMetrics((i) => i.adId === ad.id);
-                          const isRejected = ad.effectiveStatus === "DISAPPROVED";
-
-                          return (
-                            <tr key={ad.id} style={{ backgroundColor: "rgba(255, 255, 255, 0.03)", borderLeft: "3px solid #cbd5e1" }}>
-                              <td>
-                                <div style={{ paddingLeft: "52px" }}>
-                                  <div style={{ color: "#f1f5f9" }}>↳ ↳ 🖼️ Оголошення: {ad.name}</div>
-                                  <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "2px" }}>ID: {ad.id}</div>
-                                  {isRejected && ad.rejectionReason && (
-                                    <div style={{ fontSize: "10px", color: "#f87171", marginTop: "4px", backgroundColor: "rgba(248, 113, 113, 0.05)", borderLeft: "2px solid #ef4444", padding: "4px 8px" }}>
-                                      🚫 Причина відхилення: {ad.rejectionReason}
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-                              <td>
-                                <span className={`badge ${
-                                  ad.effectiveStatus === "ACTIVE" ? "badge-success" : 
-                                  isRejected ? "badge-error" : "badge-secondary"
-                                }`} style={{ fontSize: "9px", padding: "2px 5px", textTransform: "capitalize" }}>
-                                  {ad.effectiveStatus === "ACTIVE" ? "Активне" : 
-                                   isRejected ? "Відхилено" : "Пауза"}
-                                </span>
-                              </td>
-                              <td>${aMetrics.spend.toFixed(2)}</td>
-                              <td>{aMetrics.impressions.toLocaleString()}</td>
-                              <td>{aMetrics.clicks.toLocaleString()}</td>
-                              <td>{aMetrics.ctr.toFixed(2)}%</td>
-                              <td>${aMetrics.cpc.toFixed(2)}</td>
-                              <td>${aMetrics.cpm.toFixed(2)}</td>
-                              <td>
-                                <strong style={{ color: "var(--color-success)" }}>{aMetrics.leads}</strong>
-                              </td>
-                              <td>{aMetrics.leads > 0 ? `$${aMetrics.cpl.toFixed(2)}` : "—"}</td>
-                            </tr>
-                          );
-                        });
-
-                        return [adsetRow, ...adRows];
-                      });
                     })}
                   </tbody>
                 </table>
               </div>
+            )}
+          </>
+        ) : (
+          /* LEVEL 2+: CAMPAIGNS → ADSETS → ADS (Facebook Ads Manager style) */
+          <>
+            {/* Breadcrumb navigation */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              marginBottom: "16px",
+              fontSize: "13px",
+              color: "var(--text-muted)",
+              flexWrap: "wrap"
+            }}>
+              <button
+                type="button"
+                onClick={() => updateFilters("socialAccount", "ALL")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--color-accent)",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: "500",
+                  padding: "0"
+                }}
+              >
+                Всі акаунти
+              </button>
+              <span style={{ color: "var(--text-muted)" }}>›</span>
+              <button
+                type="button"
+                onClick={navigateToCampaigns}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: drillLevel === "campaigns" ? "white" : "var(--color-accent)",
+                  cursor: drillLevel === "campaigns" ? "default" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: drillLevel === "campaigns" ? "700" : "500",
+                  padding: "0"
+                }}
+              >
+                {socialAccounts.find(s => s.id === selectedSocial)?.name || "Акаунт"}
+              </button>
+              {drillLevel !== "campaigns" && selectedCampaign && (
+                <>
+                  <span style={{ color: "var(--text-muted)" }}>›</span>
+                  <button
+                    type="button"
+                    onClick={navigateToAdSets}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: drillLevel === "adsets" ? "white" : "var(--color-accent)",
+                      cursor: drillLevel === "adsets" ? "default" : "pointer",
+                      fontSize: "13px",
+                      fontWeight: drillLevel === "adsets" ? "700" : "500",
+                      padding: "0"
+                    }}
+                  >
+                    {selectedCampaign.name}
+                  </button>
+                </>
+              )}
+              {drillLevel === "ads" && selectedAdSet && (
+                <>
+                  <span style={{ color: "var(--text-muted)" }}>›</span>
+                  <span style={{ color: "white", fontWeight: "700" }}>{selectedAdSet.name}</span>
+                </>
+              )}
+            </div>
+
+            {/* Level Tabs */}
+            <div style={{
+              display: "flex",
+              gap: "0",
+              borderBottom: "1px solid var(--border-color)",
+              marginBottom: "20px"
+            }}>
+              {[
+                { level: "campaigns" as DrillLevel, label: "Кампанії", count: currentCampaigns.length },
+                { level: "adsets" as DrillLevel, label: "Групи оголошень", count: currentAdSets.length },
+                { level: "ads" as DrillLevel, label: "Оголошення", count: currentAds.length }
+              ].map(tab => {
+                const isActive = drillLevel === tab.level;
+                const isClickable = (tab.level === "campaigns")
+                  || (tab.level === "adsets" && selectedCampaignId)
+                  || (tab.level === "ads" && selectedAdSetId);
+                return (
+                  <button
+                    key={tab.level}
+                    type="button"
+                    disabled={!isClickable}
+                    onClick={() => {
+                      if (tab.level === "campaigns") navigateToCampaigns();
+                      else if (tab.level === "adsets" && selectedCampaignId) navigateToAdSets();
+                    }}
+                    style={{
+                      padding: "10px 20px",
+                      fontSize: "13px",
+                      fontWeight: "600",
+                      color: isActive ? "var(--color-accent)" : (isClickable ? "var(--text-secondary)" : "var(--text-muted)"),
+                      background: "none",
+                      border: "none",
+                      borderBottom: isActive ? "2px solid var(--color-accent)" : "2px solid transparent",
+                      cursor: isClickable ? "pointer" : "default",
+                      transition: "all 0.2s",
+                      opacity: isClickable ? 1 : 0.4,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px"
+                    }}
+                  >
+                    {tab.label}
+                    {isActive && (
+                      <span style={{
+                        background: "rgba(16, 185, 129, 0.12)",
+                        color: "var(--color-accent)",
+                        borderRadius: "10px",
+                        padding: "1px 7px",
+                        fontSize: "11px",
+                        fontWeight: "700"
+                      }}>
+                        {tab.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* TABLE: CAMPAIGNS LEVEL */}
+            {drillLevel === "campaigns" && (
+              campaignsList.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
+                  Немає завантажених кампаній для цього акаунта. Переконайтеся, що синхронізація (крон) успішно завершилася.
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "30%" }}>Назва</th>
+                        <th style={{ width: "10%" }}>Статус</th>
+                        {metricHeaders}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentCampaigns.map(campaign => {
+                        const m = getSummedMetrics(i => i.campaignId === campaign.id);
+                        return (
+                          <tr key={campaign.id} style={{ cursor: "pointer" }} onClick={() => handleCampaignClick(campaign.id)}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <span style={{ color: "var(--text-muted)", fontSize: "16px" }}>▶</span>
+                                <strong style={{ color: "white", fontSize: "13px" }}>{campaign.name}</strong>
+                              </div>
+                            </td>
+                            <td><StatusBadge status={campaign.effectiveStatus} /></td>
+                            <MetricCells m={m} />
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* TABLE: ADSETS LEVEL */}
+            {drillLevel === "adsets" && (
+              currentAdSets.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
+                  Немає груп оголошень у цій кампанії.
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "30%" }}>Назва</th>
+                        <th style={{ width: "10%" }}>Статус</th>
+                        {metricHeaders}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentAdSets.map(adset => {
+                        const m = getSummedMetrics(i => i.adsetId === adset.id);
+                        return (
+                          <tr key={adset.id} style={{ cursor: "pointer" }} onClick={() => handleAdSetClick(adset.id)}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <span style={{ color: "var(--text-muted)", fontSize: "16px" }}>▶</span>
+                                <strong style={{ color: "white", fontSize: "13px" }}>{adset.name}</strong>
+                              </div>
+                            </td>
+                            <td><StatusBadge status={adset.effectiveStatus} /></td>
+                            <MetricCells m={m} />
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* TABLE: ADS LEVEL */}
+            {drillLevel === "ads" && (
+              currentAds.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
+                  Немає оголошень у цій групі.
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: "30%" }}>Назва</th>
+                        <th style={{ width: "10%" }}>Статус</th>
+                        {metricHeaders}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {currentAds.map(ad => {
+                        const m = getSummedMetrics(i => i.adId === ad.id);
+                        const isRejected = ad.effectiveStatus === "DISAPPROVED";
+                        return (
+                          <tr key={ad.id}>
+                            <td>
+                              <div>
+                                <strong style={{ color: "white", fontSize: "13px" }}>{ad.name}</strong>
+                                {isRejected && ad.rejectionReason && (
+                                  <div style={{
+                                    fontSize: "11px",
+                                    color: "#f87171",
+                                    marginTop: "6px",
+                                    backgroundColor: "rgba(248, 113, 113, 0.05)",
+                                    borderLeft: "2px solid #ef4444",
+                                    padding: "4px 8px",
+                                    borderRadius: "4px"
+                                  }}>
+                                    🚫 {ad.rejectionReason}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                            <td><StatusBadge status={ad.effectiveStatus} /></td>
+                            <MetricCells m={m} />
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
             )}
           </>
         )}

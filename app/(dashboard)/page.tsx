@@ -70,7 +70,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     });
 
     adAccountOptions = await db.fbAdAccount.findMany({
-      select: { id: true, name: true, socialAccountId: true, status: true }
+      select: { id: true, name: true, socialAccountId: true, status: true, disabledAt: true }
     });
 
     // 2. Build filters for stats query
