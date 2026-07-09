@@ -324,10 +324,11 @@ export interface FbAdData {
   effective_status: string;
   adset_id: string;
   rejection_reason?: string | null;
+  creative?: { id: string; effective_object_story_id?: string | null } | null;
 }
 
 export async function getAdAccountAds(adAccountId: string, accessToken: string): Promise<FbAdData[]> {
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations&limit=1000&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id}&limit=1000&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -346,7 +347,11 @@ export async function getAdAccountAds(adAccountId: string, accessToken: string):
       status: ad.status,
       effective_status: ad.effective_status,
       adset_id: ad.adset?.id,
-      rejection_reason: rejectionReason
+      rejection_reason: rejectionReason,
+      creative: ad.creative ? {
+        id: ad.creative.id,
+        effective_object_story_id: ad.creative.effective_object_story_id
+      } : null
     };
   });
 }
