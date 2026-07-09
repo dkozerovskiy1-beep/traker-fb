@@ -85,7 +85,7 @@ export async function GET() {
 
                 // Fetch comments using the matching page token (or user token if page token not found)
                 const tokenToUse = matchingPage?.accessToken || social.accessToken;
-                const commentsUrl = `https://graph.facebook.com/v21.0/${storyId}/comments?fields=id,message,from,created_time,is_hidden&limit=15&access_token=${tokenToUse}`;
+                const commentsUrl = `https://graph.facebook.com/v21.0/${storyId}/comments?fields=id,message,from,created_time,is_hidden,can_hide&limit=15&access_token=${tokenToUse}`;
                 
                 try {
                   const commentsRes = await fetch(commentsUrl);
@@ -97,7 +97,8 @@ export async function GET() {
                       id: c.id,
                       message: c.message,
                       author: c.from?.name || "Невідомий",
-                      is_hidden: c.is_hidden
+                      is_hidden: c.is_hidden,
+                      can_hide: c.can_hide
                     }));
                   } else {
                     const err = await commentsRes.json().catch(() => ({}));
