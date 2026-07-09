@@ -466,6 +466,16 @@ export async function GET(req: Request) {
           });
           if (existingLog) continue;
 
+          // Safety limit: only auto-moderate comments created within the last 24 hours
+          // This prevents retroactive mass-hiding of old comments on newly connected pages
+          if (fbComment.created_time) {
+            const commentTime = new Date(fbComment.created_time).getTime();
+            const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+            if (commentTime < oneDayAgo) {
+              continue; // Skip auto-moderation for old comments
+            }
+          }
+
           // Apply moderation rules
           const activeRules = await db.moderationRule.findMany({
             where: {
