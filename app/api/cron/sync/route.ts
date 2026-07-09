@@ -35,11 +35,16 @@ export async function GET(req: Request) {
   }
 
   try {
-    const today = new Date();
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(today.getDate() - 30);
+    // Limit sync range to prevent execution timeouts on Vercel (default: last 2 days)
+    // Old historical stats don't change, so we only need to sync today and yesterday.
+    const daysParam = searchParams.get("days");
+    const daysToSync = daysParam ? parseInt(daysParam) : 2;
 
-    const startDateStr = formatDate(thirtyDaysAgo);
+    const today = new Date();
+    const syncStartDate = new Date();
+    syncStartDate.setDate(today.getDate() - (daysToSync - 1));
+
+    const startDateStr = formatDate(syncStartDate);
     const endDateStr = formatDate(today);
 
     // 2. Fetch all active Facebook Social Accounts with User preferences
