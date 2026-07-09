@@ -11,14 +11,19 @@ datasource db {
 }
 
 model User {
-  id              String             @id @default(uuid())
-  email           String             @unique
-  name            String?
-  password        String
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  inviteLinks     InviteLink[]
-  socialAccounts  FbSocialAccount[]
+  id                 String             @id @default(uuid())
+  email              String             @unique
+  name               String?
+  password           String
+  telegramChatId     String?
+  alertOnBans        Boolean            @default(true)
+  alertOnRejections  Boolean            @default(true)
+  alertOnApprovals   Boolean            @default(false)
+  alertOnComments    Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  inviteLinks        InviteLink[]
+  socialAccounts     FbSocialAccount[]
 }
 
 model InviteLink {

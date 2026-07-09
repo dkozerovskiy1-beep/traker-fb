@@ -1,9 +1,9 @@
-export async function sendTelegramAlert(message: string): Promise<boolean> {
+export async function sendTelegramAlert(message: string, customChatId?: string | null): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = customChatId || process.env.TELEGRAM_CHAT_ID;
 
   if (!token || !chatId) {
-    console.warn("Telegram alerts are not configured. Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID.");
+    console.warn("Telegram alerts are not configured. Missing token or chat ID.");
     return false;
   }
 

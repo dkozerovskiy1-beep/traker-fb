@@ -35,10 +35,13 @@ export async function GET(req: Request) {
     const startDateStr = formatDate(thirtyDaysAgo);
     const endDateStr = formatDate(today);
 
-    // 2. Fetch all active Facebook Social Accounts
+    // 2. Fetch all active Facebook Social Accounts with User preferences
     const activeSocialAccounts = await db.fbSocialAccount.findMany({
       where: { status: "ACTIVE" },
-      include: { adAccounts: true }
+      include: { 
+        adAccounts: true,
+        user: true
+      }
     });
 
     let syncedAccountsCount = 0;
@@ -66,12 +69,16 @@ export async function GET(req: Request) {
         const newStatus = fbAdAcc.account_status === 1 ? "ACTIVE" : "DISABLED";
 
         if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
-          await sendTelegramAlert(
-            `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
-            `• <b>Профіль:</b> ${socialAccount.name}\n` +
-            `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
-            `• <b>Статус:</b> DISABLED (Деактивовано)`
-          );
+          const user = (socialAccount as any).user;
+          if (user && user.telegramChatId && user.alertOnBans) {
+            await sendTelegramAlert(
+              `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
+              `• <b>Профіль:</b> ${socialAccount.name}\n` +
+              `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
+              `• <b>Статус:</b> DISABLED (Деактивовано)`,
+              user.telegramChatId
+            );
+          }
         }
 
         // Track disabledAt date when transitioning to DISABLED
@@ -178,24 +185,32 @@ export async function GET(req: Request) {
             });
 
             if (oldAd && oldAd.effectiveStatus !== "DISAPPROVED" && ad.effective_status === "DISAPPROVED") {
-              await sendTelegramAlert(
-                `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
-                `• <b>Профіль:</b> ${socialAccount.name}\n` +
-                `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
-                `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
-                `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
-                `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`
-              );
+              const user = (socialAccount as any).user;
+              if (user && user.telegramChatId && user.alertOnRejections) {
+                await sendTelegramAlert(
+                  `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
+                  `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                  `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                  `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                  `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
+                  `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`,
+                  user.telegramChatId
+                );
+              }
             }
 
             if (oldAd && oldAd.effectiveStatus === "DISAPPROVED" && ad.effective_status === "ACTIVE") {
-              await sendTelegramAlert(
-                `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
-                `• <b>Профіль:</b> ${socialAccount.name}\n` +
-                `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
-                `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
-                `• <b>Статус:</b> ACTIVE (Активне)`
-              );
+              const user = (socialAccount as any).user;
+              if (user && user.telegramChatId && user.alertOnApprovals) {
+                await sendTelegramAlert(
+                  `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
+                  `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                  `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                  `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                  `• <b>Статус:</b> ACTIVE (Активне)`,
+                  user.telegramChatId
+                );
+              }
             }
 
             await db.fbAd.upsert({
@@ -465,6 +480,20 @@ export async function GET(req: Request) {
                       ruleMatched: rule.name
                     }
                   });
+
+                  // Send Telegram alert if user has alertOnComments enabled
+                  const user = (socialAccount as any).user;
+                  if (user && user.telegramChatId && user.alertOnComments) {
+                    await sendTelegramAlert(
+                      `💬 <b>[VartaFlow Alert] КОМЕНТАР МОДЕРОВАНО</b>\n\n` +
+                      `• <b>Сторінка:</b> ${page.name}\n` +
+                      `• <b>Автор:</b> ${fbComment.from?.name || "Невідомий"}\n` +
+                      `• <b>Коментар:</b> <i>"${fbComment.message}"</i>\n` +
+                      `• <b>Дія:</b> ${rule.action === "HIDE" ? "ПРИХОВАНО" : "ВИДАЛЕНО"}\n` +
+                      `• <b>Правило:</b> ${rule.name}`,
+                      user.telegramChatId
+                    );
+                  }
 
                   // Update comment status in DB
                   await db.fbComment.update({

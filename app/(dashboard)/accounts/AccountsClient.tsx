@@ -22,16 +22,49 @@ interface FbSocialAccountItem {
   pages: { id: string; name: string }[];
 }
 
+interface UserSettings {
+  id: string;
+  email: string;
+  name: string | null;
+  telegramChatId: string | null;
+  alertOnBans: boolean;
+  alertOnRejections: boolean;
+  alertOnApprovals: boolean;
+  alertOnComments: boolean;
+}
+
 interface AccountsClientProps {
   initialInviteLinks: InviteLinkItem[];
   socialAccounts: FbSocialAccountItem[];
+  currentUser: UserSettings | null;
+  botUsername: string;
 }
 
-export default function AccountsClient({ initialInviteLinks, socialAccounts }: AccountsClientProps) {
+export default function AccountsClient({
+  initialInviteLinks,
+  socialAccounts,
+  currentUser,
+  botUsername
+}: AccountsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const errorParam = searchParams.get("error");
   const successParam = searchParams.get("success");
+
+  // Notification toggles states
+  const [telegramChatId, setTelegramChatId] = useState<string | null>(currentUser?.telegramChatId || null);
+  const [alertOnBans, setAlertOnBans] = useState(currentUser?.alertOnBans ?? true);
+  const [alertOnRejections, setAlertOnRejections] = useState(currentUser?.alertOnRejections ?? true);
+  const [alertOnApprovals, setAlertOnApprovals] = useState(currentUser?.alertOnApprovals ?? false);
+  const [alertOnComments, setAlertOnComments] = useState(currentUser?.alertOnComments ?? true);
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+
+  // Invite states
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [description, setDescription] = useState("");
+  const [isOneTime, setIsOneTime] = useState(true);
+  const [newInviteUrl, setNewInviteUrl] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (errorParam) {
@@ -42,13 +75,47 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
     }
   }, [errorParam, successParam]);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [description, setDescription] = useState("");
-  const [isOneTime, setIsOneTime] = useState(true);
-  const [newInviteUrl, setNewInviteUrl] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  // Handle setting updates
+  const handleToggleChange = async (key: string, value: boolean) => {
+    if (!currentUser) return;
 
+    // Local optimistic update
+    if (key === "alertOnBans") setAlertOnBans(value);
+    if (key === "alertOnRejections") setAlertOnRejections(value);
+    if (key === "alertOnApprovals") setAlertOnApprovals(value);
+    if (key === "alertOnComments") setAlertOnComments(value);
 
+    try {
+      await fetch("/api/user/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value })
+      });
+    } catch (err) {
+      console.error("Failed to update settings:", err);
+    }
+  };
+
+  const handleDisconnectTelegram = async () => {
+    if (!confirm("Ви впевнені, що хочете вимкнути Telegram-сповіщення?")) return;
+    setIsUpdatingSettings(true);
+    try {
+      const res = await fetch("/api/user/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ disconnectTelegram: true })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTelegramChatId(null);
+        alert("Telegram-сповіщення вимкнено!");
+      }
+    } catch (err) {
+      console.error("Failed to disconnect Telegram:", err);
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
 
   const handleCreateInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,7 +130,7 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
       if (data.success) {
         setNewInviteUrl(data.inviteUrl);
         setDescription("");
-        router.refresh(); // Refresh parent Server Component to fetch new links
+        router.refresh();
       } else {
         alert("Помилка при створенні інвайту: " + data.error);
       }
@@ -100,7 +167,7 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
   };
 
   const handleDisconnectAccount = async (id: string, name: string) => {
-    if (!confirm(`Ви дійсно бажаєте відключити акаунт "${name}"?\nУсі пов'язані кабінети, сторінки та статистика будуть видалені.`)) return;
+    if (!confirm(`Ви дійсно хочете відключити та видалити Facebook-акаунт "${name}"? Це призведе до видалення всієї пов'язаної статистики та кабінетів.`)) return;
     try {
       const res = await fetch("/api/accounts/delete", {
         method: "POST",
@@ -109,10 +176,10 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
       });
       const data = await res.json();
       if (data.success) {
-        alert("Акаунт успішно відключено!");
+        alert("Акаунт успішно видалено!");
         router.refresh();
       } else {
-        alert("Помилка відключення: " + data.error);
+        alert("Помилка видалення: " + data.error);
       }
     } catch (err: any) {
       alert("Сталася помилка: " + err.message);
@@ -120,8 +187,9 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
   };
 
   const handleRenameAccount = async (id: string, currentName: string) => {
-    const newName = prompt("Введіть нову назву для цього акаунта:", currentName);
-    if (newName === null || newName.trim() === "" || newName.trim() === currentName) return;
+    const newName = prompt("Введіть нове ім'я для акаунта:", currentName);
+    if (newName === null) return;
+    if (!newName.trim()) return alert("Ім'я не може бути порожнім");
 
     try {
       const res = await fetch("/api/accounts/update-name", {
@@ -131,10 +199,9 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
       });
       const data = await res.json();
       if (data.success) {
-        alert("Ім'я успішно оновлено!");
         router.refresh();
       } else {
-        alert("Помилка оновлення імені: " + data.error);
+        alert("Помилка при оновленні імені: " + data.error);
       }
     } catch (err: any) {
       alert("Сталася помилка: " + err.message);
@@ -143,10 +210,10 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
 
   return (
     <>
-      {/* Top Header Row */}
+      {/* Title Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <h1>Facebook Акаунти</h1>
+          <h1>Керування профілями</h1>
           <p className="subtitle">Підключені соціальні профілі та рекламні кабінети</p>
         </div>
         <button className="btn btn-primary" onClick={() => { setNewInviteUrl(""); setIsModalOpen(true); }}>
@@ -289,6 +356,153 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
           </div>
         )}
       </div>
+
+      {/* NEW: Scalable & beautiful Telegram Alert Settings Section */}
+      {currentUser && (
+        <div className="card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          <div>
+            <h2>Налаштування Telegram-сповіщень</h2>
+            <p className="subtitle">Отримуйте миттєві сповіщення про бани, відхилення або коментарі</p>
+          </div>
+
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "24px",
+            alignItems: "start",
+            borderTop: "1px solid var(--border-color)",
+            paddingTop: "20px"
+          }}>
+            {/* Left side: Toggles */}
+            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px" }}>
+                Обирайте, які сповіщення отримувати:
+              </span>
+
+              {[
+                { key: "alertOnBans", label: "🚫 Блокування рекламних кабінетів", state: alertOnBans },
+                { key: "alertOnRejections", label: "❌ Відхилення оголошень (Disapproved)", state: alertOnRejections },
+                { key: "alertOnApprovals", label: "✅ Успішне проходження модерації оголошеннями", state: alertOnApprovals },
+                { key: "alertOnComments", label: "💬 Автоматична модерація спам-коментарів", state: alertOnComments }
+              ].map(toggle => (
+                <div key={toggle.key} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <input
+                    type="checkbox"
+                    id={toggle.key}
+                    checked={toggle.state}
+                    disabled={!telegramChatId}
+                    onChange={(e) => handleToggleChange(toggle.key, e.target.checked)}
+                    style={{
+                      width: "18px",
+                      height: "18px",
+                      accentColor: "var(--color-accent)",
+                      cursor: telegramChatId ? "pointer" : "not-allowed",
+                      opacity: telegramChatId ? 1 : 0.4
+                    }}
+                  />
+                  <label
+                    htmlFor={toggle.key}
+                    style={{
+                      fontSize: "14px",
+                      cursor: telegramChatId ? "pointer" : "not-allowed",
+                      color: telegramChatId ? "white" : "var(--text-muted)",
+                      fontWeight: "500"
+                    }}
+                  >
+                    {toggle.label}
+                  </label>
+                </div>
+              ))}
+              {!telegramChatId && (
+                <span style={{ fontSize: "12px", color: "var(--color-warning)" }}>
+                  ⚠️ Спочатку підключіть ваш Telegram праворуч, щоб активувати вибір сповіщень.
+                </span>
+              )}
+            </div>
+
+            {/* Right side: Telegram Bot Linking status */}
+            <div style={{
+              backgroundColor: "rgba(8, 10, 16, 0.4)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "var(--radius-md)",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "16px",
+              justifyContent: "center",
+              alignItems: "center",
+              textAlign: "center"
+            }}>
+              {telegramChatId ? (
+                <>
+                  <div style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(16, 185, 129, 0.1)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2.5">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                      <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: "15px", color: "white", marginBottom: "4px" }}>Telegram підключено!</h3>
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                      Бот буде надсилати сповіщення у ваш особистий чат (ID: <code>{telegramChatId}</code>)
+                    </p>
+                  </div>
+                  <button
+                    className="btn btn-danger"
+                    style={{ padding: "6px 16px", fontSize: "12px" }}
+                    disabled={isUpdatingSettings}
+                    onClick={handleDisconnectTelegram}
+                  >
+                    Вимкнути сповіщення
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(59, 130, 246, 0.1)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-info)" strokeWidth="2.5">
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: "15px", color: "white", marginBottom: "4px" }}>Підписка на сповіщення</h3>
+                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", maxWidth: "260px" }}>
+                      Підключіть Telegram, щоб миттєво дізнаватися про проблеми чи бани кабінетів.
+                    </p>
+                  </div>
+                  <a
+                    href={`https://t.me/${botUsername}?start=${currentUser.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-primary"
+                    style={{ textDecoration: "none", color: "#04060a" }}
+                  >
+                    🔗 Підключити Telegram
+                  </a>
+                  <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                    Відкриє Telegram та прив'яже ваш акаунт автоматично
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Invite Links History */}
       <div className="card">
@@ -434,7 +648,6 @@ export default function AccountsClient({ initialInviteLinks, socialAccounts }: A
           </div>
         </div>
       )}
-
     </>
   );
 }

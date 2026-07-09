@@ -20,3 +20,23 @@ export async function verifyJWT(token: string) {
     return null;
   }
 }
+
+import { cookies } from "next/headers";
+import { db } from "./db";
+
+export async function getLoggedInUser() {
+  try {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("session_token")?.value;
+    if (!token) return null;
+
+    const payload = await verifyJWT(token);
+    if (!payload || !payload.email) return null;
+
+    return await db.user.findUnique({
+      where: { email: payload.email }
+    });
+  } catch (error) {
+    return null;
+  }
+}
