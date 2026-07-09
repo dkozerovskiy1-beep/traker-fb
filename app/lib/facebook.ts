@@ -191,18 +191,31 @@ export async function moderateFacebookComment(
   pageAccessToken: string
 ): Promise<{ success: boolean; error?: string }> {
   const baseUrl = `https://graph.facebook.com/${FB_API_VERSION}/${commentId}`;
-  let url = baseUrl;
-  let method = "POST";
-
-  if (action === "HIDE") {
-    url = `${baseUrl}?is_hidden=true&access_token=${pageAccessToken}`;
-  } else if (action === "DELETE") {
-    url = `${baseUrl}?access_token=${pageAccessToken}`;
-    method = "DELETE";
-  }
-
+  
   try {
-    const res = await fetch(url, { method });
+    let res: Response;
+
+    if (action === "HIDE") {
+      // HIDE uses POST with body parameters
+      const bodyParams = new URLSearchParams();
+      bodyParams.append("is_hidden", "true");
+      bodyParams.append("access_token", pageAccessToken);
+
+      res = await fetch(baseUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body: bodyParams.toString()
+      });
+    } else {
+      // DELETE action (deletes comment)
+      const deleteUrl = `${baseUrl}?access_token=${pageAccessToken}`;
+      res = await fetch(deleteUrl, {
+        method: "DELETE"
+      });
+    }
+
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
