@@ -46,8 +46,8 @@ export async function GET() {
       };
 
       try {
-        // Fetch recent posts
-        const postsUrl = `https://graph.facebook.com/v21.0/${page.id}/posts?fields=id,created_time,message&limit=10&access_token=${page.accessToken}`;
+        // Fetch promotable posts (includes unpublished ad dark posts)
+        const postsUrl = `https://graph.facebook.com/v21.0/${page.id}/promotable_posts?fields=id,created_time,message&limit=15&access_token=${page.accessToken}`;
         const postsRes = await fetch(postsUrl);
         
         if (!postsRes.ok) {
