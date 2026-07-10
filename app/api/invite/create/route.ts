@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
+import { getLoggedInUser } from "@/app/lib/auth";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const { description, isOneTime } = body;
 
-    // For simplicity, we assign the link to the first user in the DB.
-    // If no users exist, we create a default admin user first.
-    let user = await db.user.findFirst();
+    const user = await getLoggedInUser();
     if (!user) {
-      user = await db.user.create({
-        data: {
-          email: process.env.ADMIN_EMAIL || "admin@tracker.com",
-          password: process.env.ADMIN_PASSWORD || "admin",
-          name: "Admin"
-        }
-      });
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
     const invite = await db.inviteLink.create({
