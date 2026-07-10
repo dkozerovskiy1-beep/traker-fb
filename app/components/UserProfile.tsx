@@ -3,7 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export default function UserProfile() {
+interface UserProfileProps {
+  user: {
+    name: string | null;
+    email: string;
+  } | null;
+  role: string;
+}
+
+export default function UserProfile({ user, role }: UserProfileProps) {
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
@@ -26,6 +34,9 @@ export default function UserProfile() {
       setIsLoggingOut(false);
     }
   };
+
+  const displayName = user?.name || user?.email?.split("@")[0] || "Користувач";
+  const initial = displayName.charAt(0).toUpperCase();
 
   return (
     <div style={{
@@ -52,11 +63,15 @@ export default function UserProfile() {
           fontSize: "14px",
           flexShrink: 0
         }}>
-          Д
+          {initial}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "2px", overflow: "hidden" }}>
-          <span style={{ fontSize: "14px", fontWeight: "600", color: "white" }}>Дмитро</span>
-          <span style={{ fontSize: "11px", color: "var(--text-muted)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>Власник</span>
+          <span style={{ fontSize: "14px", fontWeight: "600", color: "white", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+            {displayName}
+          </span>
+          <span style={{ fontSize: "11px", color: "var(--text-muted)", textOverflow: "ellipsis", overflow: "hidden", whiteSpace: "nowrap" }}>
+            {role}
+          </span>
         </div>
       </div>
 
