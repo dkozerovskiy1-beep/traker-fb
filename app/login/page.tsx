@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -167,6 +168,13 @@ export default function LoginPage() {
             {isLoading ? "Вхід..." : "Увійти в кабінет"}
           </button>
         </form>
+
+        <p style={{ marginTop: "24px", fontSize: "14px", color: "var(--text-muted)" }}>
+          Немає акаунта?{" "}
+          <Link href="/register" style={{ color: "var(--color-accent)", textDecoration: "none", fontWeight: "600" }}>
+            Зареєструватися
+          </Link>
+        </p>
       </div>
     </div>
   );
