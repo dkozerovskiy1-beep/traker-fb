@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
@@ -9,6 +9,19 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Demo mode for Facebook App Reviewers
+  const [isDemoMode, setIsDemoMode] = useState(false);
+  const [demoPasscode, setDemoPasscode] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("demo") === "true" || params.get("demo") === "1") {
+        setIsDemoMode(true);
+      }
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +42,33 @@ export default function LoginPage() {
         router.refresh();
       } else {
         setError(data.error || "Невірний email або пароль");
+      }
+    } catch (err: any) {
+      setError("Помилка з'єднання з сервером. Спробуйте пізніше.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleDemoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const res = await fetch("/api/auth/demo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ passcode: demoPasscode })
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        router.push("/");
+        router.refresh();
+      } else {
+        setError(data.error || "Невірний демо-код");
       }
     } catch (err: any) {
       setError("Помилка з'єднання з сервером. Спробуйте пізніше.");
@@ -81,10 +121,10 @@ export default function LoginPage() {
         </div>
 
         <h1 style={{ fontSize: "20px", fontWeight: "700", color: "#ffffff", marginBottom: "8px" }}>
-          Вхід до панелі керування
+          {isDemoMode ? "Reviewer Demo Login" : "Вхід до панелі керування"}
         </h1>
         <p style={{ fontSize: "14px", color: "var(--text-muted)", marginBottom: "24px" }}>
-          Введіть ваші адмін-дані для доступу
+          {isDemoMode ? "Enter passcode to access preloaded data dashboard" : "Введіть ваші адмін-дані для доступу"}
         </p>
 
         {error && (
@@ -102,71 +142,133 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px", textAlign: "left" }}>
-          <div className="form-group">
-            <label className="form-label" style={{ color: "var(--text-secondary)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              Email адреса
-            </label>
-            <input
-              type="email"
-              className="form-input"
-              required
-              placeholder="admin@tracker.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={{
-                width: "100%",
-                backgroundColor: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid var(--border-color)",
-                borderRadius: "8px",
-                padding: "12px",
-                color: "#ffffff"
-              }}
-            />
-          </div>
+        {isDemoMode ? (
+          <form onSubmit={handleDemoSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px", textAlign: "left" }}>
+            <div className="form-group">
+              <label className="form-label" style={{ color: "var(--text-secondary)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Reviewer Access Passcode
+              </label>
+              <input
+                type="password"
+                className="form-input"
+                required
+                placeholder="Enter passcode for App Review"
+                value={demoPasscode}
+                onChange={(e) => setDemoPasscode(e.target.value)}
+                style={{
+                  width: "100%",
+                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  color: "#ffffff"
+                }}
+              />
+            </div>
 
-          <div className="form-group">
-            <label className="form-label" style={{ color: "var(--text-secondary)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-              Пароль
-            </label>
-            <input
-              type="password"
-              className="form-input"
-              required
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+            <button
+              type="submit"
+              disabled={isLoading}
               style={{
-                width: "100%",
-                backgroundColor: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid var(--border-color)",
+                backgroundColor: "var(--color-accent)",
+                color: "#050505",
+                border: "none",
                 borderRadius: "8px",
-                padding: "12px",
-                color: "#ffffff"
+                padding: "14px",
+                fontWeight: "600",
+                fontSize: "15px",
+                cursor: "pointer",
+                marginTop: "10px",
+                transition: "all 0.2s",
+                opacity: isLoading ? 0.7 : 1
               }}
-            />
-          </div>
+            >
+              {isLoading ? "Signing in..." : "Demo Login"}
+            </button>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            style={{
-              backgroundColor: "var(--color-accent)",
-              color: "#050505",
-              border: "none",
-              borderRadius: "8px",
-              padding: "14px",
-              fontWeight: "600",
-              fontSize: "15px",
-              cursor: "pointer",
-              marginTop: "10px",
-              transition: "all 0.2s",
-              opacity: isLoading ? 0.7 : 1
-            }}
-          >
-            {isLoading ? "Вхід..." : "Увійти в кабінет"}
-          </button>
-        </form>
+            <button
+              type="button"
+              onClick={() => setIsDemoMode(false)}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: "13px",
+                cursor: "pointer",
+                textAlign: "center",
+                marginTop: "5px"
+              }}
+            >
+              ← Back to Admin Login
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px", textAlign: "left" }}>
+            <div className="form-group">
+              <label className="form-label" style={{ color: "var(--text-secondary)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Email адреса
+              </label>
+              <input
+                type="email"
+                className="form-input"
+                required
+                placeholder="admin@tracker.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{
+                  width: "100%",
+                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  color: "#ffffff"
+                }}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label" style={{ color: "var(--text-secondary)", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                Пароль
+              </label>
+              <input
+                type="password"
+                className="form-input"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={{
+                  width: "100%",
+                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "8px",
+                  padding: "12px",
+                  color: "#ffffff"
+                }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              style={{
+                backgroundColor: "var(--color-accent)",
+                color: "#050505",
+                border: "none",
+                borderRadius: "8px",
+                padding: "14px",
+                fontWeight: "600",
+                fontSize: "15px",
+                cursor: "pointer",
+                marginTop: "10px",
+                transition: "all 0.2s",
+                opacity: isLoading ? 0.7 : 1
+              }}
+            >
+              {isLoading ? "Вхід..." : "Увійти в кабінет"}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );
