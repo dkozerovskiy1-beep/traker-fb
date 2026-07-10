@@ -14,7 +14,6 @@ export async function proxy(req: NextRequest) {
 
   const isPublicApi =
     pathname === "/api/auth/login" ||
-    pathname === "/api/auth/demo" ||
     pathname === "/api/auth/facebook/callback" ||
     pathname === "/api/cron/sync" ||
     pathname === "/api/webhooks/facebook" ||
