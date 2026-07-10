@@ -4,21 +4,29 @@ export default function PrivacyPolicy() {
   return (
     <div style={{ maxWidth: "800px", margin: "60px auto", padding: "0 20px", fontFamily: "Inter, system-ui, sans-serif", color: "var(--text-primary)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "40px" }}>
-        <div style={{
-          backgroundColor: "var(--color-accent)",
-          color: "#050505",
-          width: "36px",
-          height: "36px",
-          borderRadius: "8px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontWeight: "800",
-          fontSize: "18px"
-        }}>
-          V
+        <img 
+          src="/logo.png" 
+          alt="Logo" 
+          style={{ 
+            width: "32px", 
+            height: "32px", 
+            objectFit: "contain",
+            borderRadius: "8px"
+          }} 
+        />
+        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
+          <span style={{ fontSize: "19px", fontWeight: "800", color: "white", letterSpacing: "-0.6px" }}>Varta</span>
+          <img 
+            src="/flow.png" 
+            alt="Flow" 
+            style={{ 
+              height: "16px", 
+              width: "auto", 
+              objectFit: "contain",
+              marginTop: "2px"
+            }} 
+          />
         </div>
-        <span style={{ fontSize: "20px", fontWeight: "700", letterSpacing: "-0.5px" }}>VartaFlow</span>
       </div>
 
       <h1 style={{ fontSize: "32px", fontWeight: "700", marginBottom: "16px", color: "#ffffff" }}>Політика конфіденційності</h1>

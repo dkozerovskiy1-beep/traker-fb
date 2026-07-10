@@ -53,13 +53,13 @@ export default function UserProfile({ user, role }: UserProfileProps) {
           width: "36px",
           height: "36px",
           borderRadius: "50%",
-          backgroundColor: "rgba(16, 185, 129, 0.1)",
-          border: "1px solid rgba(16, 185, 129, 0.3)",
+          backgroundColor: "rgba(59, 130, 246, 0.1)",
+          border: "1px solid rgba(59, 130, 246, 0.3)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontWeight: "700",
-          color: "var(--color-emerald)",
+          color: "var(--color-accent)",
           fontSize: "14px",
           flexShrink: 0
         }}>

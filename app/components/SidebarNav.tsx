@@ -50,7 +50,7 @@ export default function SidebarNav() {
             href={item.href}
             className={`nav-item ${isActive ? "nav-item-active" : ""}`}
           >
-            <span style={{ display: "flex", alignItems: "center", color: isActive ? "var(--color-emerald)" : "var(--text-secondary)" }}>
+            <span style={{ display: "flex", alignItems: "center", color: isActive ? "var(--color-accent)" : "var(--text-secondary)" }}>
               {item.icon}
             </span>
             <span>{item.label}</span>

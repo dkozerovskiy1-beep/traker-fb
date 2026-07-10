@@ -1,4 +1,4 @@
-/* VartaFlow: Cyber Emerald & Slate Obsidian Premium Design System */
+/* VartaFlow: Obsidian Cobalt Premium Design System */
 
 :root {
   /* Theme Colors */
@@ -7,7 +7,7 @@
   --bg-card-hover: #121829;
   --bg-input: #070a12;
   --border-color: #182235;
-  --border-color-glow: #10b981;
+  --border-color-glow: #3b82f6;
   
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
@@ -15,9 +15,9 @@
 
   --color-emerald: #10b981;
   --color-indigo: #6366f1;
-  --color-accent: #10b981;
-  --color-accent-hover: #059669;
-  --color-accent-gradient: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+  --color-accent: #3b82f6;
+  --color-accent-hover: #2563eb;
+  --color-accent-gradient: linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%);
   
   --color-success: #10b981;
   --color-success-bg: rgba(16, 185, 129, 0.1);
@@ -97,8 +97,8 @@ button, input, select, textarea {
   display: flex;
   min-height: 100vh;
   background-image: 
-    radial-gradient(circle at 10% 20%, rgba(16, 185, 129, 0.04) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(59, 130, 246, 0.03) 0%, transparent 45%);
+    radial-gradient(circle at 10% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(6, 180, 212, 0.04) 0%, transparent 45%);
 }
 
 .sidebar {
@@ -143,8 +143,8 @@ button, input, select, textarea {
 
 .nav-item-active {
   color: white !important;
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%);
-  border-left: 3px solid var(--color-success);
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(6, 180, 212, 0.05) 100%);
+  border-left: 3px solid var(--color-accent);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   padding-left: 13px; /* compensate for border */
 }
@@ -153,7 +153,8 @@ button, input, select, textarea {
 
 /* Cards with unique glowing borders */
 .card {
-  background-color: var(--bg-card);
+  background-color: rgba(12, 16, 27, 0.85);
+  backdrop-filter: blur(12px);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   padding: 28px;
@@ -170,14 +171,14 @@ button, input, select, textarea {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-success-bg), transparent);
+  background: linear-gradient(90deg, transparent, rgba(59, 130, 246, 0.2), transparent);
   opacity: 0;
   transition: opacity var(--transition-normal);
 }
 
 .card:hover {
-  border-color: rgba(16, 185, 129, 0.3);
-  box-shadow: 0 15px 30px -10px rgba(16, 185, 129, 0.08);
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 15px 30px -10px rgba(59, 130, 246, 0.12);
 }
 
 .card:hover::before {
@@ -224,14 +225,14 @@ h2 {
 
 .btn-primary {
   background: var(--color-accent-gradient);
-  color: #04060a;
+  color: #ffffff;
   font-weight: 700;
-  box-shadow: 0 4px 20px rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 20px rgba(59, 130, 246, 0.25);
 }
 
 .btn-primary:hover {
   transform: translateY(-1.5px);
-  box-shadow: 0 6px 24px rgba(16, 185, 129, 0.5);
+  box-shadow: 0 6px 24px rgba(59, 130, 246, 0.4);
   filter: brightness(1.1);
 }
 
@@ -371,8 +372,8 @@ h2 {
 }
 
 .form-input:focus {
-  border-color: var(--color-success);
-  box-shadow: 0 0 10px rgba(16, 185, 129, 0.15);
+  border-color: var(--color-accent);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.15);
 }
 
 /* Glassmorphic Modal with high blur */
