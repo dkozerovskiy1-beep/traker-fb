@@ -8,12 +8,14 @@ export async function proxy(req: NextRequest) {
   // Define public paths that do not require authentication
   const isPublicPage =
     pathname === "/login" ||
+    pathname === "/register" ||
     pathname.startsWith("/invite/") ||
     pathname === "/privacy" ||
     pathname === "/terms";
 
   const isPublicApi =
     pathname === "/api/auth/login" ||
+    pathname === "/api/auth/register" ||
     pathname === "/api/auth/facebook/callback" ||
     pathname === "/api/cron/sync" ||
     pathname === "/api/webhooks/facebook" ||

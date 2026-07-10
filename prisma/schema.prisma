@@ -24,6 +24,7 @@ model User {
   updatedAt          DateTime           @updatedAt
   inviteLinks        InviteLink[]
   socialAccounts     FbSocialAccount[]
+  moderationRules    ModerationRule[]
 }
 
 model InviteLink {
@@ -111,6 +112,8 @@ model ModerationRule {
   id        String   @id @default(uuid())
   pageId    String?
   page      FbPage?  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
   name      String
   type      String   @default("STOP_WORDS") // STOP_WORDS or HIDE_ALL
   keywords  String   @default("")

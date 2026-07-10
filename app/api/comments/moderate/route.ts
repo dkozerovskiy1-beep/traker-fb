@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
+import { getLoggedInUser } from "@/app/lib/auth";
 import { moderateFacebookComment } from "@/app/lib/facebook";
 
 export async function POST(req: Request) {
   try {
+    const user = await getLoggedInUser();
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
     const { fbCommentId, action } = await req.json();
 
     if (!fbCommentId || !action) {
@@ -14,16 +20,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Invalid action. Must be HIDE or DELETE" }, { status: 400 });
     }
 
-    // Find the comment in DB to get the page access token
-    const comment = await db.fbComment.findUnique({
-      where: { fbCommentId },
+    // Find the comment in DB and verify user ownership of the Page
+    const comment = await db.fbComment.findFirst({
+      where: { 
+        fbCommentId,
+        page: { socialAccount: { userId: user.id } }
+      },
       include: {
         page: { select: { id: true, name: true, accessToken: true } }
       }
     });
 
     if (!comment) {
-      return NextResponse.json({ success: false, error: "Comment not found" }, { status: 404 });
+      return NextResponse.json({ success: false, error: "Коментар не знайдено або у вас немає доступу" }, { status: 403 });
     }
 
     // Call Facebook API to moderate

@@ -11,12 +11,18 @@ export default async function AccountsPage() {
 
   try {
     user = await getLoggedInUser();
+    if (!user) {
+      // In case session fails, though middleware protects this
+      return null;
+    }
 
     inviteLinks = await db.inviteLink.findMany({
+      where: { userId: user.id },
       orderBy: { createdAt: "desc" }
     });
 
     socialAccounts = await db.fbSocialAccount.findMany({
+      where: { userId: user.id },
       include: {
         adAccounts: true,
         pages: true

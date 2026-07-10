@@ -1,5 +1,7 @@
 import { db } from "../lib/db";
+import { getLoggedInUser } from "../lib/auth";
 import AnalyticsClient from "./AnalyticsClient";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,11 @@ function formatDate(date: Date): string {
 }
 
 export default async function HomePage({ searchParams }: PageProps) {
+  const user = await getLoggedInUser();
+  if (!user) {
+    redirect("/login");
+  }
+
   const resolvedSearchParams = await searchParams;
   const socialAccount = resolvedSearchParams.socialAccount || "ALL";
   const adAccount = resolvedSearchParams.adAccount || "ALL";
@@ -64,12 +71,14 @@ export default async function HomePage({ searchParams }: PageProps) {
   let totals = { spend: 0, impressions: 0, clicks: 0, leads: 0, conversions: 0 };
 
   try {
-    // 1. Fetch filter options
+    // 1. Fetch filter options (filtered by logged-in user)
     socialAccountOptions = await db.fbSocialAccount.findMany({
+      where: { userId: user.id },
       select: { id: true, name: true }
     });
 
     adAccountOptions = await db.fbAdAccount.findMany({
+      where: { socialAccount: { userId: user.id } },
       select: { id: true, name: true, socialAccountId: true, status: true, disabledAt: true }
     });
 
