@@ -16,30 +16,16 @@ export default async function DashboardLayout({
       {/* Sidebar Navigation */}
       <aside className="sidebar">
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "28px 24px", borderBottom: "1px solid var(--border-color)" }}>
+        <div style={{ display: "flex", alignItems: "center", padding: "28px 24px", borderBottom: "1px solid var(--border-color)" }}>
           <img 
-            src="/logo.png" 
-            alt="Logo" 
+            src="/vartaflow-gorizonr-logo.svg" 
+            alt="VartaFlow" 
             style={{ 
-              width: "32px", 
-              height: "32px", 
-              objectFit: "contain",
-              borderRadius: "8px"
+              height: "26px", 
+              width: "auto", 
+              objectFit: "contain"
             }} 
           />
-          <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-            <span style={{ fontSize: "19px", fontWeight: "800", color: "white", letterSpacing: "-0.6px" }}>Varta</span>
-            <img 
-              src="/flow.png" 
-              alt="Flow" 
-              style={{ 
-                height: "16px", 
-                width: "auto", 
-                objectFit: "contain",
-                marginTop: "2px"
-              }} 
-            />
-          </div>
         </div>
 
         {/* Navigation links */}

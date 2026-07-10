@@ -3,30 +3,16 @@ import Link from "next/link";
 export default function TermsOfService() {
   return (
     <div style={{ maxWidth: "800px", margin: "60px auto", padding: "0 20px", fontFamily: "Inter, system-ui, sans-serif", color: "var(--text-primary)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "40px" }}>
+      <div style={{ display: "flex", alignItems: "center", marginBottom: "40px" }}>
         <img 
-          src="/logo.png" 
-          alt="Logo" 
+          src="/vartaflow-gorizonr-logo.svg" 
+          alt="VartaFlow" 
           style={{ 
-            width: "32px", 
-            height: "32px", 
-            objectFit: "contain",
-            borderRadius: "8px"
+            height: "28px", 
+            width: "auto", 
+            objectFit: "contain"
           }} 
         />
-        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-          <span style={{ fontSize: "19px", fontWeight: "800", color: "white", letterSpacing: "-0.6px" }}>Varta</span>
-          <img 
-            src="/flow.png" 
-            alt="Flow" 
-            style={{ 
-              height: "16px", 
-              width: "auto", 
-              objectFit: "contain",
-              marginTop: "2px"
-            }} 
-          />
-        </div>
       </div>
 
       <h1 style={{ fontSize: "32px", fontWeight: "700", marginBottom: "16px", color: "#ffffff" }}>Умови використання</h1>

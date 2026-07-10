@@ -61,30 +61,16 @@ export default function LoginPage() {
         textAlign: "center"
       }}>
         {/* Branding Logo */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px", marginBottom: "32px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: "32px" }}>
           <img 
-            src="/logo.png" 
-            alt="Logo" 
+            src="/vartaflow-gorizonr-logo.svg" 
+            alt="VartaFlow" 
             style={{ 
-              width: "42px", 
-              height: "42px", 
-              objectFit: "contain",
-              borderRadius: "10px"
+              height: "36px", 
+              width: "auto", 
+              objectFit: "contain"
             }} 
           />
-          <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
-            <span style={{ fontSize: "24px", fontWeight: "800", color: "#ffffff", letterSpacing: "-0.6px" }}>Varta</span>
-            <img 
-              src="/flow.png" 
-              alt="Flow" 
-              style={{ 
-                height: "20px", 
-                width: "auto", 
-                objectFit: "contain",
-                marginTop: "2px"
-              }} 
-            />
-          </div>
         </div>
 
         <h1 style={{ fontSize: "20px", fontWeight: "700", color: "#ffffff", marginBottom: "8px" }}>

@@ -33,30 +33,16 @@ export default async function InvitePage({ params }: InvitePageProps) {
 
   return (
     <div className={styles.container}>
-      <div className={styles.logoContainer} style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "32px" }}>
+      <div className={styles.logoContainer}>
         <img 
-          src="/logo.png" 
-          alt="Logo" 
+          src="/vartaflow-gorizonr-logo.svg" 
+          alt="VartaFlow" 
           style={{ 
-            width: "38px", 
-            height: "38px", 
-            objectFit: "contain",
-            borderRadius: "10px"
+            height: "36px", 
+            width: "auto", 
+            objectFit: "contain"
           }} 
         />
-        <div style={{ display: "flex", alignItems: "center", gap: "3px" }}>
-          <span style={{ fontSize: "24px", fontWeight: "800", color: "#ffffff", letterSpacing: "-0.6px" }}>Varta</span>
-          <img 
-            src="/flow.png" 
-            alt="Flow" 
-            style={{ 
-              height: "20px", 
-              width: "auto", 
-              objectFit: "contain",
-              marginTop: "2px"
-            }} 
-          />
-        </div>
       </div>
 
       {isValid ? (
