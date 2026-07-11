@@ -82,16 +82,38 @@ export default async function HomePage({ searchParams }: PageProps) {
       select: { id: true, name: true, socialAccountId: true, status: true, disabledAt: true }
     });
 
+    // Validate that the requested socialAccount and adAccount belong to the user
+    if (socialAccount !== "ALL") {
+      const belongs = socialAccountOptions.some(s => s.id === socialAccount);
+      if (!belongs) {
+        redirect("/");
+      }
+    }
+
+    if (adAccount !== "ALL") {
+      const belongs = adAccountOptions.some(a => a.id === adAccount);
+      if (!belongs) {
+        redirect("/");
+      }
+    }
+
     // 2. Build filters for stats query
     const accountFilter: any = {};
     if (adAccount !== "ALL") {
       accountFilter.adAccountId = adAccount;
     } else if (socialAccount !== "ALL") {
       const ads = await db.fbAdAccount.findMany({
-        where: { socialAccountId: socialAccount },
+        where: { 
+          socialAccountId: socialAccount,
+          socialAccount: { userId: user.id }
+        },
         select: { id: true }
       });
       accountFilter.adAccountId = { in: ads.map(a => a.id) };
+    } else {
+      // Limit to user's ad accounts when "ALL" is selected to avoid data leakage
+      const userAdAccountIds = adAccountOptions.map(a => a.id);
+      accountFilter.adAccountId = { in: userAdAccountIds };
     }
 
     // 3. Query daily insights (exclude old campaign-level duplicates)
@@ -162,7 +184,10 @@ export default async function HomePage({ searchParams }: PageProps) {
       });
     }
 
-  } catch (error) {
+  } catch (error: any) {
+    if (error && error.digest && error.digest.startsWith("NEXT_REDIRECT")) {
+      throw error;
+    }
     console.error("Prisma query error in HomePage (using mock analytics):", error);
 
     // Fallbacks for mock data representation
