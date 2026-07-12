@@ -173,6 +173,50 @@ export default function AnalyticsClient({
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAdSetId, setSelectedAdSetId] = useState<string | null>(null);
 
+  // Sorting state
+  const [sortField, setSortField] = useState<string>("clicks");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [hoveredHeader, setHoveredHeader] = useState<string | null>(null);
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+    } else {
+      setSortField(field);
+      setSortOrder("desc");
+    }
+  };
+
+  const SortableTH = ({ field, label, width }: { field: string; label: string; width?: string }) => {
+    const isSorted = sortField === field;
+    const isHovered = hoveredHeader === field;
+    return (
+      <th 
+        style={{ 
+          cursor: "pointer", 
+          userSelect: "none", 
+          width: width, 
+          color: isSorted || isHovered ? "var(--color-accent)" : "var(--text-secondary)",
+          transition: "color 0.2s"
+        }}
+        onClick={() => toggleSort(field)}
+        onMouseEnter={() => setHoveredHeader(field)}
+        onMouseLeave={() => setHoveredHeader(null)}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <span>{label}</span>
+          {isSorted ? (
+            <span style={{ fontSize: "10px", color: "var(--color-accent)" }}>
+              {sortOrder === "asc" ? "▲" : "▼"}
+            </span>
+          ) : (
+            <span style={{ fontSize: "10px", color: "var(--text-muted)", opacity: 0.3 }}>▼</span>
+          )}
+        </div>
+      </th>
+    );
+  };
+
   // Banned accounts tab
   const [showBannedTab, setShowBannedTab] = useState(false);
 
@@ -374,24 +418,87 @@ export default function AnalyticsClient({
     setSelectedAdSetId(null);
   };
 
-  // Build data for current level
-  const currentCampaigns = campaignsList;
-  const currentAdSets = selectedCampaign ? selectedCampaign.adsets : [];
-  const currentAds = selectedAdSet ? selectedAdSet.ads : [];
+  // Generic sort list helper
+  const sortList = <T extends { name: string; status: string; spend: number; impressions: number; clicks: number; ctr: number; cpc: number; cpm: number; leads: number; cpl: number }>(list: T[]): T[] => {
+    return [...list].sort((a, b) => {
+      let valA: any = a[sortField as keyof T];
+      let valB: any = b[sortField as keyof T];
 
-  // Metric table headers
-  const metricHeaders = (
-    <>
-      <th>Витрати</th>
-      <th>Покази</th>
-      <th>Кліки</th>
-      <th>CTR</th>
-      <th>CPC</th>
-      <th>CPM</th>
-      <th>Ліди</th>
-      <th>CPL</th>
-    </>
-  );
+      if (sortField === "name" || sortField === "status") {
+        valA = (valA || "").toString().toLowerCase();
+        valB = (valB || "").toString().toLowerCase();
+        return sortOrder === "asc"
+          ? valA.localeCompare(valB)
+          : valB.localeCompare(valA);
+      }
+
+      valA = Number(valA) || 0;
+      valB = Number(valB) || 0;
+      return sortOrder === "asc" ? valA - valB : valB - valA;
+    });
+  };
+
+  // Build data for current level with metrics for sorting
+  const currentCampaigns = campaignsList;
+  const campaignsWithMetrics = currentCampaigns.map(campaign => {
+    const metrics = getSummedMetrics(i => i.campaignId === campaign.id);
+    return {
+      item: campaign,
+      name: campaign.name,
+      status: campaign.effectiveStatus,
+      ...metrics
+    };
+  });
+
+  const currentAdSets = selectedCampaign ? selectedCampaign.adsets : [];
+  const adsetsWithMetrics = currentAdSets.map(adset => {
+    const metrics = getSummedMetrics(i => i.adsetId === adset.id);
+    return {
+      item: adset,
+      name: adset.name,
+      status: adset.effectiveStatus,
+      ...metrics
+    };
+  });
+
+  // For Ads, if no adset is selected but a campaign is selected, gather ads from all adsets in the campaign
+  const rawAdsList = selectedAdSet
+    ? selectedAdSet.ads.map(ad => ({ ad, adset: selectedAdSet }))
+    : (selectedCampaign
+        ? selectedCampaign.adsets.flatMap(s => s.ads.map(ad => ({ ad, adset: s })))
+        : []);
+
+  const adsWithMetrics = rawAdsList.map(({ ad, adset }) => {
+    const metrics = getSummedMetrics(i => i.adId === ad.id);
+    return {
+      item: ad,
+      adset: adset,
+      name: ad.name,
+      status: ad.effectiveStatus,
+      ...metrics
+    };
+  });
+
+  const socialAccountsWithMetrics = socialAccountsSummary.map(sa => {
+    const ctr = sa.impressions > 0 ? (sa.clicks / sa.impressions) * 100 : 0;
+    const cpc = sa.clicks > 0 ? sa.spend / sa.clicks : 0;
+    const cpm = sa.impressions > 0 ? (sa.spend / sa.impressions) * 1000 : 0;
+    const cpl = sa.leads > 0 ? sa.spend / sa.leads : 0;
+    return {
+      item: sa,
+      id: sa.id,
+      name: sa.name,
+      status: "ACTIVE",
+      spend: sa.spend,
+      impressions: sa.impressions,
+      clicks: sa.clicks,
+      leads: sa.leads,
+      ctr,
+      cpc,
+      cpm,
+      cpl
+    };
+  });
 
   const MetricCells = ({ m }: { m: ReturnType<typeof getSummedMetrics> }) => (
     <>
@@ -763,25 +870,20 @@ export default function AnalyticsClient({
                 <table className="custom-table">
                   <thead>
                     <tr>
-                      <th>Соціальний акаунт</th>
-                      <th>Витрати</th>
-                      <th>Покази</th>
-                      <th>Кліки</th>
-                      <th>CTR</th>
-                      <th>CPC</th>
-                      <th>CPM</th>
-                      <th>Результати (Ліди)</th>
-                      <th>CPR (CPL)</th>
-                      <th>Дії</th>
+                      <SortableTH field="name" label="Соціальний акаунт" />
+                      <SortableTH field="spend" label="Витрати" />
+                      <SortableTH field="impressions" label="Покази" />
+                      <SortableTH field="clicks" label="Кліки" />
+                      <SortableTH field="ctr" label="CTR" />
+                      <SortableTH field="cpc" label="CPC" />
+                      <SortableTH field="cpm" label="CPM" />
+                      <SortableTH field="leads" label="Результати (Ліди)" />
+                      <SortableTH field="cpl" label="CPR (CPL)" />
+                      <th style={{ color: "var(--text-secondary)" }}>Дії</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {socialAccountsSummary.map((sa) => {
-                      const saCTR = sa.impressions > 0 ? (sa.clicks / sa.impressions) * 100 : 0;
-                      const saCPC = sa.clicks > 0 ? sa.spend / sa.clicks : 0;
-                      const saCPM = sa.impressions > 0 ? (sa.spend / sa.impressions) * 1000 : 0;
-                      const saCPL = sa.leads > 0 ? sa.spend / sa.leads : 0;
-
+                    {sortList(socialAccountsWithMetrics).map((sa) => {
                       return (
                         <tr key={sa.id}>
                           <td>
@@ -790,13 +892,13 @@ export default function AnalyticsClient({
                           <td>${sa.spend.toFixed(2)}</td>
                           <td>{sa.impressions.toLocaleString()}</td>
                           <td>{sa.clicks.toLocaleString()}</td>
-                          <td>{saCTR.toFixed(2)}%</td>
-                          <td>${saCPC.toFixed(2)}</td>
-                          <td>${saCPM.toFixed(2)}</td>
+                          <td>{sa.ctr.toFixed(2)}%</td>
+                          <td>${sa.cpc.toFixed(2)}</td>
+                          <td>${sa.cpm.toFixed(2)}</td>
                           <td>
                             <strong style={{ color: "var(--color-success)" }}>{sa.leads}</strong>
                           </td>
-                          <td>{sa.leads > 0 ? `$${saCPL.toFixed(2)}` : "—"}</td>
+                          <td>{sa.leads > 0 ? `${sa.cpl.toFixed(2)}` : "—"}</td>
                           <td>
                             <button
                               className="btn btn-secondary"
@@ -896,12 +998,12 @@ export default function AnalyticsClient({
               {[
                 { level: "campaigns" as DrillLevel, label: "Кампанії", count: currentCampaigns.length },
                 { level: "adsets" as DrillLevel, label: "Групи оголошень", count: currentAdSets.length },
-                { level: "ads" as DrillLevel, label: "Оголошення", count: currentAds.length }
+                { level: "ads" as DrillLevel, label: "Оголошення", count: adsWithMetrics.length }
               ].map(tab => {
                 const isActive = drillLevel === tab.level;
                 const isClickable = (tab.level === "campaigns")
                   || (tab.level === "adsets" && selectedCampaignId)
-                  || (tab.level === "ads" && selectedAdSetId);
+                  || (tab.level === "ads" && selectedCampaignId);
                 return (
                   <button
                     key={tab.level}
@@ -910,6 +1012,10 @@ export default function AnalyticsClient({
                     onClick={() => {
                       if (tab.level === "campaigns") navigateToCampaigns();
                       else if (tab.level === "adsets" && selectedCampaignId) navigateToAdSets();
+                      else if (tab.level === "ads" && selectedCampaignId) {
+                        setDrillLevel("ads");
+                        setSelectedAdSetId(null);
+                      }
                     }}
                     style={{
                       padding: "10px 20px",
@@ -956,14 +1062,21 @@ export default function AnalyticsClient({
                   <table className="custom-table">
                     <thead>
                       <tr>
-                        <th style={{ width: "30%" }}>Назва</th>
-                        <th style={{ width: "10%" }}>Статус</th>
-                        {metricHeaders}
+                        <SortableTH field="name" label="Назва" width="30%" />
+                        <SortableTH field="status" label="Статус" width="10%" />
+                        <SortableTH field="spend" label="Витрати" />
+                        <SortableTH field="impressions" label="Покази" />
+                        <SortableTH field="clicks" label="Кліки" />
+                        <SortableTH field="ctr" label="CTR" />
+                        <SortableTH field="cpc" label="CPC" />
+                        <SortableTH field="cpm" label="CPM" />
+                        <SortableTH field="leads" label="Ліди" />
+                        <SortableTH field="cpl" label="CPL" />
                       </tr>
                     </thead>
                     <tbody>
-                      {currentCampaigns.map(campaign => {
-                        const m = getSummedMetrics(i => i.campaignId === campaign.id);
+                      {sortList(campaignsWithMetrics).map(({ item: campaign, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                        const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         return (
                           <tr key={campaign.id} style={{ cursor: "pointer" }} onClick={() => handleCampaignClick(campaign.id)}>
                             <td>
@@ -994,14 +1107,21 @@ export default function AnalyticsClient({
                   <table className="custom-table">
                     <thead>
                       <tr>
-                        <th style={{ width: "30%" }}>Назва</th>
-                        <th style={{ width: "10%" }}>Статус</th>
-                        {metricHeaders}
+                        <SortableTH field="name" label="Назва" width="30%" />
+                        <SortableTH field="status" label="Статус" width="10%" />
+                        <SortableTH field="spend" label="Витрати" />
+                        <SortableTH field="impressions" label="Покази" />
+                        <SortableTH field="clicks" label="Кліки" />
+                        <SortableTH field="ctr" label="CTR" />
+                        <SortableTH field="cpc" label="CPC" />
+                        <SortableTH field="cpm" label="CPM" />
+                        <SortableTH field="leads" label="Ліди" />
+                        <SortableTH field="cpl" label="CPL" />
                       </tr>
                     </thead>
                     <tbody>
-                      {currentAdSets.map(adset => {
-                        const m = getSummedMetrics(i => i.adsetId === adset.id);
+                      {sortList(adsetsWithMetrics).map(({ item: adset, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                        const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         return (
                           <tr key={adset.id} style={{ cursor: "pointer" }} onClick={() => handleAdSetClick(adset.id)}>
                             <td>
@@ -1023,29 +1143,41 @@ export default function AnalyticsClient({
 
             {/* TABLE: ADS LEVEL */}
             {drillLevel === "ads" && (
-              currentAds.length === 0 ? (
+              adsWithMetrics.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
-                  Немає оголошень у цій групі.
+                  Немає оголошень.
                 </div>
               ) : (
                 <div className="table-container">
                   <table className="custom-table">
                     <thead>
                       <tr>
-                        <th style={{ width: "30%" }}>Назва</th>
-                        <th style={{ width: "10%" }}>Статус</th>
-                        {metricHeaders}
+                        <SortableTH field="name" label="Назва" width="30%" />
+                        <SortableTH field="status" label="Статус" width="10%" />
+                        <SortableTH field="spend" label="Витрати" />
+                        <SortableTH field="impressions" label="Покази" />
+                        <SortableTH field="clicks" label="Кліки" />
+                        <SortableTH field="ctr" label="CTR" />
+                        <SortableTH field="cpc" label="CPC" />
+                        <SortableTH field="cpm" label="CPM" />
+                        <SortableTH field="leads" label="Ліди" />
+                        <SortableTH field="cpl" label="CPL" />
                       </tr>
                     </thead>
                     <tbody>
-                      {currentAds.map(ad => {
-                        const m = getSummedMetrics(i => i.adId === ad.id);
+                      {sortList(adsWithMetrics).map(({ item: ad, adset, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                        const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         const isRejected = ad.effectiveStatus === "DISAPPROVED";
                         return (
                           <tr key={ad.id}>
                             <td>
                               <div>
                                 <strong style={{ color: "white", fontSize: "13px" }}>{ad.name}</strong>
+                                {!selectedAdSetId && adset && (
+                                  <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
+                                    Група: {adset.name}
+                                  </div>
+                                )}
                                 {isRejected && ad.rejectionReason && (
                                   <div style={{
                                     fontSize: "11px",
