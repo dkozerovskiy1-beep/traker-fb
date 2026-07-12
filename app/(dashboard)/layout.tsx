@@ -21,7 +21,7 @@ export default async function DashboardLayout({
             src="/vartaflow-gorizonr-logo.svg" 
             alt="VartaFlow" 
             style={{ 
-              height: "26px", 
+              height: "36px", 
               width: "auto", 
               objectFit: "contain"
             }} 
