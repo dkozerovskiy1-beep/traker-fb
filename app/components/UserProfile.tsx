@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useToast } from "./ToastProvider";
 
 interface UserProfileProps {
   user: {
@@ -14,9 +15,11 @@ interface UserProfileProps {
 export default function UserProfile({ user, role }: UserProfileProps) {
   const router = useRouter();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { toast, confirm } = useToast();
 
   const handleLogout = async () => {
-    if (!confirm("Ви дійсно бажаєте вийти з системи?")) return;
+    const confirmed = await confirm("Ви дійсно бажаєте вийти з системи?", { title: "Вихід" });
+    if (!confirmed) return;
     setIsLoggingOut(true);
     try {
       const res = await fetch("/api/auth/logout", {
@@ -26,10 +29,11 @@ export default function UserProfile({ user, role }: UserProfileProps) {
         router.push("/login");
         router.refresh();
       } else {
-        alert("Помилка виходу");
+        toast.error("Помилка виходу");
       }
     } catch (err) {
       console.error(err);
+      toast.error("Помилка зв'язку із сервером");
     } finally {
       setIsLoggingOut(false);
     }

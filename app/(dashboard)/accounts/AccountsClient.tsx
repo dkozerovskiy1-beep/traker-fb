@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useToast } from "../../components/ToastProvider";
 
 interface InviteLinkItem {
   id: string;
@@ -48,6 +49,7 @@ export default function AccountsClient({
 }: AccountsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { toast, confirm, prompt } = useToast();
   const errorParam = searchParams.get("error");
   const successParam = searchParams.get("success");
 
@@ -68,12 +70,12 @@ export default function AccountsClient({
 
   useEffect(() => {
     if (errorParam) {
-      alert("Помилка підключення Facebook: " + decodeURIComponent(errorParam));
+      toast.error("Помилка підключення Facebook: " + decodeURIComponent(errorParam));
     }
     if (successParam) {
-      alert("Facebook акаунт успішно підключено!");
+      toast.success("Facebook акаунт успішно підключено!");
     }
-  }, [errorParam, successParam]);
+  }, [errorParam, successParam, toast]);
 
   // Handle setting updates
   const handleToggleChange = async (key: string, value: boolean) => {
@@ -97,7 +99,8 @@ export default function AccountsClient({
   };
 
   const handleDisconnectTelegram = async () => {
-    if (!confirm("Ви впевнені, що хочете вимкнути Telegram-сповіщення?")) return;
+    const confirmed = await confirm("Ви впевнені, що хочете вимкнути Telegram-сповіщення?", { title: "Telegram-сповіщення" });
+    if (!confirmed) return;
     setIsUpdatingSettings(true);
     try {
       const res = await fetch("/api/user/settings", {
@@ -108,7 +111,7 @@ export default function AccountsClient({
       const data = await res.json();
       if (data.success) {
         setTelegramChatId(null);
-        alert("Telegram-сповіщення вимкнено!");
+        toast.success("Telegram-сповіщення вимкнено!");
       }
     } catch (err) {
       console.error("Failed to disconnect Telegram:", err);
@@ -130,12 +133,13 @@ export default function AccountsClient({
       if (data.success) {
         setNewInviteUrl(data.inviteUrl);
         setDescription("");
+        toast.success("Інвайт-посилання створено!");
         router.refresh();
       } else {
-        alert("Помилка при створенні інвайту: " + data.error);
+        toast.error("Помилка при створенні інвайту: " + data.error);
       }
     } catch (err: any) {
-      alert("Сталася помилка: " + err.message);
+      toast.error("Сталася помилка: " + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -143,11 +147,12 @@ export default function AccountsClient({
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    alert("Посилання скопійовано у буфер обміну!");
+    toast.success("Посилання скопійовано у буфер обміну!");
   };
 
   const handleDeleteInvite = async (id: string, name: string) => {
-    if (!confirm(`Ви дійсно бажаєте видалити інвайт-посилання "${name || "Без опису"}"?`)) return;
+    const confirmed = await confirm(`Ви дійсно бажаєте видалити інвайт-посилання "${name || "Без опису"}"?`, { title: "Видалення інвайту" });
+    if (!confirmed) return;
     try {
       const res = await fetch("/api/invite/delete", {
         method: "POST",
@@ -156,18 +161,19 @@ export default function AccountsClient({
       });
       const data = await res.json();
       if (data.success) {
-        alert("Інвайт-посилання успішно видалено!");
+        toast.success("Інвайт-посилання успішно видалено!");
         router.refresh();
       } else {
-        alert("Помилка видалення: " + data.error);
+        toast.error("Помилка видалення: " + data.error);
       }
     } catch (err: any) {
-      alert("Сталася помилка: " + err.message);
+      toast.error("Сталася помилка: " + err.message);
     }
   };
 
   const handleDisconnectAccount = async (id: string, name: string) => {
-    if (!confirm(`Ви дійсно хочете відключити та видалити Facebook-акаунт "${name}"? Це призведе до видалення всієї пов'язаної статистики та кабінетів.`)) return;
+    const confirmed = await confirm(`Ви дійсно хочете відключити та видалити Facebook-акаунт "${name}"? Це призведе до видалення всієї пов'язаної статистики та кабінетів.`, { title: "Відключення акаунта" });
+    if (!confirmed) return;
     try {
       const res = await fetch("/api/accounts/delete", {
         method: "POST",
@@ -176,20 +182,20 @@ export default function AccountsClient({
       });
       const data = await res.json();
       if (data.success) {
-        alert("Акаунт успішно видалено!");
+        toast.success("Акаунт успішно видалено!");
         router.refresh();
       } else {
-        alert("Помилка видалення: " + data.error);
+        toast.error("Помилка видалення: " + data.error);
       }
     } catch (err: any) {
-      alert("Сталася помилка: " + err.message);
+      toast.error("Сталася помилка: " + err.message);
     }
   };
 
   const handleRenameAccount = async (id: string, currentName: string) => {
-    const newName = prompt("Введіть нове ім'я для акаунта:", currentName);
+    const newName = await prompt("Введіть нове ім'я для акаунта:", { title: "Редагування імені", defaultValue: currentName });
     if (newName === null) return;
-    if (!newName.trim()) return alert("Ім'я не може бути порожнім");
+    if (!newName.trim()) return toast.error("Ім'я не може бути порожнім");
 
     try {
       const res = await fetch("/api/accounts/update-name", {
@@ -199,12 +205,13 @@ export default function AccountsClient({
       });
       const data = await res.json();
       if (data.success) {
+        toast.success("Ім'я успішно оновлено!");
         router.refresh();
       } else {
-        alert("Помилка при оновленні імені: " + data.error);
+        toast.error("Помилка при оновленні імені: " + data.error);
       }
     } catch (err: any) {
-      alert("Сталася помилка: " + err.message);
+      toast.error("Сталася помилка: " + err.message);
     }
   };
 

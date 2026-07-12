@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useToast } from "../../components/ToastProvider";
 
 interface PageOption {
   id: string;
@@ -52,6 +53,7 @@ interface CommentsClientProps {
 
 export default function CommentsClient({ pages, rules, logs, comments }: CommentsClientProps) {
   const router = useRouter();
+  const { toast, confirm } = useToast();
   const [selectedPage, setSelectedPage] = useState<string>("ALL");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"comments" | "logs" | "rules">("comments");
@@ -89,7 +91,7 @@ export default function CommentsClient({ pages, rules, logs, comments }: Comment
 
   const handleCreateRule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ruleName) return alert("Будь ласка, введіть назву правила");
+    if (!ruleName) return toast.error("Будь ласка, введіть назву правила");
     
     setIsLoading(true);
     try {
@@ -110,30 +112,33 @@ export default function CommentsClient({ pages, rules, logs, comments }: Comment
         setRuleName("");
         setKeywords("");
         setIsModalOpen(false);
+        toast.success("Правило успішно створено!");
         router.refresh();
       } else {
-        alert("Помилка створення правила: " + data.error);
+        toast.error("Помилка створення правила: " + data.error);
       }
     } catch (err: any) {
-      alert("Помилка: " + err.message);
+      toast.error("Помилка: " + err.message);
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDeleteRule = async (ruleId: string) => {
-    if (!confirm("Ви впевнені, що хочете видалити це правило?")) return;
+    const confirmed = await confirm("Ви впевнені, що хочете видалити це правило?", { title: "Видалення правила" });
+    if (!confirmed) return;
 
     try {
       const res = await fetch(`/api/rules/delete?id=${ruleId}`, { method: "DELETE" });
       const data = await res.json();
       if (data.success) {
+        toast.success("Правило успішно видалено!");
         router.refresh();
       } else {
-        alert("Помилка видалення: " + data.error);
+        toast.error("Помилка видалення: " + data.error);
       }
     } catch (err: any) {
-      alert("Помилка: " + err.message);
+      toast.error("Помилка: " + err.message);
     }
   };
 
@@ -148,12 +153,13 @@ export default function CommentsClient({ pages, rules, logs, comments }: Comment
       });
       const data = await res.json();
       if (data.success) {
+        toast.success(actionType === "HIDE" ? "Коментар приховано!" : "Коментар видалено!");
         router.refresh();
       } else {
-        alert("Помилка модерації: " + (data.error || "Невідома помилка"));
+        toast.error("Помилка модерації: " + (data.error || "Невідома помилка"));
       }
     } catch (err: any) {
-      alert("Помилка: " + err.message);
+      toast.error("Помилка: " + err.message);
     } finally {
       setModeratingId(null);
     }
