@@ -7,6 +7,7 @@ export async function proxy(req: NextRequest) {
 
   // Define public paths that do not require authentication
   const isPublicPage =
+    pathname === "/" ||
     pathname === "/login" ||
     pathname === "/register" ||
     pathname.startsWith("/invite/") ||
