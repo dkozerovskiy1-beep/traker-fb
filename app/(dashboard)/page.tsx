@@ -1,6 +1,7 @@
 import { db } from "../lib/db";
 import { getLoggedInUser } from "../lib/auth";
 import AnalyticsClient from "./AnalyticsClient";
+import LandingPage from "../components/LandingPage";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ function formatDate(date: Date): string {
 export default async function HomePage({ searchParams }: PageProps) {
   const user = await getLoggedInUser();
   if (!user) {
-    redirect("/login");
+    return <LandingPage />;
   }
 
   const resolvedSearchParams = await searchParams;

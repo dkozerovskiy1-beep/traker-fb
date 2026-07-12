@@ -11,6 +11,10 @@ export default async function DashboardLayout({
   const adminEmail = process.env.ADMIN_EMAIL || "admin@tracker.com";
   const role = user?.email === adminEmail ? "Власник" : "Користувач";
 
+  if (!user) {
+    return <>{children}</>;
+  }
+
   return (
     <div className="app-container">
       {/* Sidebar Navigation */}
