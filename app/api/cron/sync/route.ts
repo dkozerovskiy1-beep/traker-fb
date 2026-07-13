@@ -129,122 +129,137 @@ export async function GET(req: Request) {
             getAdAccountAds(adAccount.id, socialAccount.accessToken)
           ]);
 
-          for (const camp of fbCampaigns) {
-            await db.fbCampaign.upsert({
-              where: { id: camp.id },
-              update: {
-                name: camp.name,
-                status: camp.status,
-                effectiveStatus: camp.effective_status,
-                updatedAt: new Date()
-              },
-              create: {
-                id: camp.id,
-                name: camp.name,
-                status: camp.status,
-                effectiveStatus: camp.effective_status,
-                adAccountId: adAccount.id
-              }
-            });
-          }
-
-          for (const adset of fbAdSets) {
-            const campExists = fbCampaigns.some(c => c.id === adset.campaign_id);
-            if (!campExists && adset.campaign_id) {
-              await db.fbCampaign.upsert({
-                where: { id: adset.campaign_id },
-                update: { updatedAt: new Date() },
+          // Parallelize campaign updates
+          await Promise.all(
+            fbCampaigns.map(camp =>
+              db.fbCampaign.upsert({
+                where: { id: camp.id },
+                update: {
+                  name: camp.name,
+                  status: camp.status,
+                  effectiveStatus: camp.effective_status,
+                  updatedAt: new Date()
+                },
                 create: {
-                  id: adset.campaign_id,
-                  name: `Campaign ${adset.campaign_id}`,
+                  id: camp.id,
+                  name: camp.name,
+                  status: camp.status,
+                  effectiveStatus: camp.effective_status,
                   adAccountId: adAccount.id
                 }
-              });
-            }
+              })
+            )
+          );
 
-            await db.fbAdSet.upsert({
-              where: { id: adset.id },
-              update: {
-                name: adset.name,
-                status: adset.status,
-                effectiveStatus: adset.effective_status,
-                updatedAt: new Date()
-              },
-              create: {
-                id: adset.id,
-                name: adset.name,
-                status: adset.status,
-                effectiveStatus: adset.effective_status,
-                campaignId: adset.campaign_id
-              }
-            });
+          // Find missing campaigns that adsets might reference and upsert them first
+          const missingCampaignIds = Array.from(new Set(
+            fbAdSets
+              .filter(adset => adset.campaign_id && !fbCampaigns.some(c => c.id === adset.campaign_id))
+              .map(adset => adset.campaign_id)
+          ));
+
+          if (missingCampaignIds.length > 0) {
+            await Promise.all(
+              missingCampaignIds.map(campId =>
+                db.fbCampaign.upsert({
+                  where: { id: campId },
+                  update: { updatedAt: new Date() },
+                  create: {
+                    id: campId,
+                    name: `Campaign ${campId}`,
+                    adAccountId: adAccount.id
+                  }
+                })
+              )
+            );
           }
 
-          for (const ad of fbAds) {
-            const adsetExists = fbAdSets.some(a => a.id === ad.adset_id);
-            if (!adsetExists && ad.adset_id) {
-              await db.fbAdSet.upsert({
-                where: { id: ad.adset_id },
-                update: { updatedAt: new Date() },
+          // Parallelize adsets updates
+          await Promise.all(
+            fbAdSets.map(adset =>
+              db.fbAdSet.upsert({
+                where: { id: adset.id },
+                update: {
+                  name: adset.name,
+                  status: adset.status,
+                  effectiveStatus: adset.effective_status,
+                  updatedAt: new Date()
+                },
                 create: {
-                  id: ad.adset_id,
-                  name: `Adset ${ad.adset_id}`,
-                  campaignId: fbAdSets.find(s => s.id === ad.adset_id)?.campaign_id || "unknown"
+                  id: adset.id,
+                  name: adset.name,
+                  status: adset.status,
+                  effectiveStatus: adset.effective_status,
+                  campaignId: adset.campaign_id || "unknown"
                 }
-              });
-            }
+              })
+            )
+          );
 
-            const oldAd = await db.fbAd.findUnique({
-              where: { id: ad.id }
-            });
+          // Find missing adsets that ads might reference and upsert them first
+          const missingAdSetIds = Array.from(new Set(
+            fbAds
+              .filter(ad => ad.adset_id && !fbAdSets.some(a => a.id === ad.adset_id))
+              .map(ad => ad.adset_id)
+          ));
 
-            if (oldAd && oldAd.effectiveStatus !== "DISAPPROVED" && ad.effective_status === "DISAPPROVED") {
-              const user = (socialAccount as any).user;
-              if (user && user.telegramChatId && user.alertOnRejections) {
-                await sendTelegramAlert(
-                  `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
-                  `• <b>Профіль:</b> ${socialAccount.name}\n` +
-                  `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
-                  `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
-                  `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
-                  `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`,
-                  user.telegramChatId
+          if (missingAdSetIds.length > 0) {
+            await Promise.all(
+              missingAdSetIds.map(adsetId =>
+                db.fbAdSet.upsert({
+                  where: { id: adsetId },
+                  update: { updatedAt: new Date() },
+                  create: {
+                    id: adsetId,
+                    name: `Adset ${adsetId}`,
+                    campaignId: fbAdSets.find(s => s.id === adsetId)?.campaign_id || "unknown"
+                  }
+                })
+              )
+            );
+          }
+
+          // Pre-fetch existing ads to avoid loop-internal findUnique queries
+          const adIds = fbAds.map(ad => ad.id);
+          const existingAds = await db.fbAd.findMany({
+            where: { id: { in: adIds } }
+          });
+
+          // Process and collect Telegram alerts
+          const telegramAlertPromises: Promise<any>[] = [];
+          const user = (socialAccount as any).user;
+
+          for (const ad of fbAds) {
+            const oldAd = existingAds.find(a => a.id === ad.id);
+
+            if (oldAd && user && user.telegramChatId) {
+              if (oldAd.effectiveStatus !== "DISAPPROVED" && ad.effective_status === "DISAPPROVED" && user.alertOnRejections) {
+                telegramAlertPromises.push(
+                  sendTelegramAlert(
+                    `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
+                    `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                    `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                    `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                    `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
+                    `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`,
+                    user.telegramChatId
+                  ).catch(err => console.error("Failed to send telegram alert:", err))
+                );
+              }
+
+              if (oldAd.effectiveStatus === "DISAPPROVED" && ad.effective_status === "ACTIVE" && user.alertOnApprovals) {
+                telegramAlertPromises.push(
+                  sendTelegramAlert(
+                    `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
+                    `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                    `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                    `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                    `• <b>Статус:</b> ACTIVE (Активне)`,
+                    user.telegramChatId
+                  ).catch(err => console.error("Failed to send telegram alert:", err))
                 );
               }
             }
-
-            if (oldAd && oldAd.effectiveStatus === "DISAPPROVED" && ad.effective_status === "ACTIVE") {
-              const user = (socialAccount as any).user;
-              if (user && user.telegramChatId && user.alertOnApprovals) {
-                await sendTelegramAlert(
-                  `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
-                  `• <b>Профіль:</b> ${socialAccount.name}\n` +
-                  `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
-                  `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
-                  `• <b>Статус:</b> ACTIVE (Активне)`,
-                  user.telegramChatId
-                );
-              }
-            }
-
-            await db.fbAd.upsert({
-              where: { id: ad.id },
-              update: {
-                name: ad.name,
-                status: ad.status,
-                effectiveStatus: ad.effective_status,
-                rejectionReason: ad.rejection_reason,
-                updatedAt: new Date()
-              },
-              create: {
-                id: ad.id,
-                name: ad.name,
-                status: ad.status,
-                effectiveStatus: ad.effective_status,
-                rejectionReason: ad.rejection_reason,
-                adsetId: ad.adset_id
-              }
-            });
 
             // Collect active ad creative story IDs for comment tracking
             if (ad.status === "ACTIVE" && ad.creative?.effective_object_story_id) {
@@ -256,6 +271,35 @@ export async function GET(req: Request) {
             }
           }
 
+          // Trigger Telegram alerts in parallel
+          if (telegramAlertPromises.length > 0) {
+            await Promise.all(telegramAlertPromises);
+          }
+
+          // Parallelize ads updates
+          await Promise.all(
+            fbAds.map(ad =>
+              db.fbAd.upsert({
+                where: { id: ad.id },
+                update: {
+                  name: ad.name,
+                  status: ad.status,
+                  effectiveStatus: ad.effective_status,
+                  rejectionReason: ad.rejection_reason,
+                  updatedAt: new Date()
+                },
+                create: {
+                  id: ad.id,
+                  name: ad.name,
+                  status: ad.status,
+                  effectiveStatus: ad.effective_status,
+                  rejectionReason: ad.rejection_reason,
+                  adsetId: ad.adset_id || "unknown"
+                }
+              })
+            )
+          );
+
           const insights = await getAdAccountInsights(
             adAccount.id,
             socialAccount.accessToken,
@@ -263,132 +307,134 @@ export async function GET(req: Request) {
             endDateStr
           );
 
-          for (const insight of insights) {
-            const dateObj = new Date(insight.date);
-
-            await db.dailyInsight.upsert({
-              where: {
-                date_adAccountId_campaignId_adsetId_adId: {
+          // Parallelize daily insights upserts
+          await Promise.all(
+            insights.map(insight => {
+              const dateObj = new Date(insight.date);
+              return db.dailyInsight.upsert({
+                where: {
+                  date_adAccountId_campaignId_adsetId_adId: {
+                    date: dateObj,
+                    adAccountId: adAccount.id,
+                    campaignId: insight.campaignId,
+                    adsetId: insight.adsetId || "null",
+                    adId: insight.adId || "null"
+                  }
+                },
+                update: {
+                  campaignName: insight.campaignName,
+                  adsetName: insight.adsetName,
+                  adName: insight.adName,
+                  spend: insight.spend,
+                  impressions: insight.impressions,
+                  clicks: insight.clicks,
+                  uniqueClicks: insight.uniqueClicks,
+                  leads: insight.leads,
+                  conversions: insight.conversions,
+                  ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
+                  cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
+                  cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0,
+                  updatedAt: new Date()
+                },
+                create: {
                   date: dateObj,
                   adAccountId: adAccount.id,
                   campaignId: insight.campaignId,
+                  campaignName: insight.campaignName,
                   adsetId: insight.adsetId || "null",
-                  adId: insight.adId || "null"
+                  adsetName: insight.adsetName,
+                  adId: insight.adId || "null",
+                  adName: insight.adName,
+                  spend: insight.spend,
+                  impressions: insight.impressions,
+                  clicks: insight.clicks,
+                  uniqueClicks: insight.uniqueClicks,
+                  leads: insight.leads,
+                  conversions: insight.conversions,
+                  ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
+                  cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
+                  cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0
                 }
-              },
-              update: {
-                campaignName: insight.campaignName,
-                adsetName: insight.adsetName,
-                adName: insight.adName,
-                spend: insight.spend,
-                impressions: insight.impressions,
-                clicks: insight.clicks,
-                uniqueClicks: insight.uniqueClicks,
-                leads: insight.leads,
-                conversions: insight.conversions,
-                ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
-                cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
-                cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0,
-                updatedAt: new Date()
-              },
-              create: {
-                date: dateObj,
-                adAccountId: adAccount.id,
-                campaignId: insight.campaignId,
-                campaignName: insight.campaignName,
-                adsetId: insight.adsetId || "null",
-                adsetName: insight.adsetName,
-                adId: insight.adId || "null",
-                adName: insight.adName,
-                spend: insight.spend,
-                impressions: insight.impressions,
-                clicks: insight.clicks,
-                uniqueClicks: insight.uniqueClicks,
-                leads: insight.leads,
-                conversions: insight.conversions,
-                ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
-                cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
-                cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0
-              }
-            });
-            syncedCampaignsCount++;
-          }
+              });
+            })
+          );
+          syncedCampaignsCount += insights.length;
 
           // 5. Evaluate Automation Rules for this Ad Account
           const rules = await db.automationRule.findMany({
             where: { adAccountId: adAccount.id, isActive: true }
           });
 
-          for (const rule of rules) {
-            // Check metric: today's statistics
-            const todayStart = new Date(today.setHours(0, 0, 0, 0));
-            const todayEnd = new Date(today.setHours(23, 59, 59, 999));
+          if (rules.length > 0) {
+            const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+            const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
 
-            // Sum metrics for today for the target (e.g. specific Campaign, or overall Ad Account)
-            const queryTargetFilter = rule.targetId === "ALL" 
-              ? {} 
-              : { campaignId: rule.targetId };
-
-            const insightsForToday = await db.dailyInsight.findMany({
+            // Fetch today's insights once per ad account
+            const allInsightsForToday = await db.dailyInsight.findMany({
               where: {
                 adAccountId: adAccount.id,
-                date: { gte: todayStart, lte: todayEnd },
-                ...queryTargetFilter
+                date: { gte: todayStart, lte: todayEnd }
               }
             });
 
-            // Calculate aggregated metric values
-            let totalSpend = 0;
-            let totalLeads = 0;
+            for (const rule of rules) {
+              const insightsForToday = rule.targetId === "ALL" 
+                ? allInsightsForToday 
+                : allInsightsForToday.filter(i => i.campaignId === rule.targetId);
 
-            for (const item of insightsForToday) {
-              totalSpend += item.spend;
-              totalLeads += item.leads;
-            }
+              // Calculate aggregated metric values
+              let totalSpend = 0;
+              let totalLeads = 0;
 
-            const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
-
-            // Determine if the rule triggers
-            let isTriggered = false;
-
-            if (rule.triggerMetric === "SPEND") {
-              if (rule.triggerOperator === "GREATER_THAN" && totalSpend > rule.triggerValue) {
-                isTriggered = true;
-              } else if (rule.triggerOperator === "LESS_THAN" && totalSpend < rule.triggerValue) {
-                isTriggered = true;
+              for (const item of insightsForToday) {
+                totalSpend += item.spend;
+                totalLeads += item.leads;
               }
-            } else if (rule.triggerMetric === "CPL") {
-              if (totalLeads > 0) { // Only evaluate CPL if we actually have leads
-                if (rule.triggerOperator === "GREATER_THAN" && cpl > rule.triggerValue) {
+
+              const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+
+              // Determine if the rule triggers
+              let isTriggered = false;
+
+              if (rule.triggerMetric === "SPEND") {
+                if (rule.triggerOperator === "GREATER_THAN" && totalSpend > rule.triggerValue) {
                   isTriggered = true;
-                } else if (rule.triggerOperator === "LESS_THAN" && cpl < rule.triggerValue) {
+                } else if (rule.triggerOperator === "LESS_THAN" && totalSpend < rule.triggerValue) {
                   isTriggered = true;
                 }
-              }
-            }
-
-            // Execute action if triggered
-            if (isTriggered) {
-              // Pause campaign action
-              if (rule.action === "PAUSE") {
-                const targetCampaignIds = rule.targetId === "ALL" 
-                  ? Array.from(new Set(insightsForToday.map(i => i.campaignId)))
-                  : [rule.targetId];
-
-                for (const campaignId of targetCampaignIds) {
-                  // Pause campaign via Facebook Graph API
-                  // POST https://graph.facebook.com/v21.0/{campaign_id}?status=PAUSED&access_token={token}
-                  const pauseUrl = `https://graph.facebook.com/v21.0/${campaignId}?status=PAUSED&access_token=${socialAccount.accessToken}`;
-                  const pauseRes = await fetch(pauseUrl, { method: "POST" });
-                  
-                  if (pauseRes.ok) {
-                    console.log(`[RULE TRIGGERED] Successfully paused campaign ${campaignId} due to rule: ${rule.name}`);
-                  } else {
-                    const err = await pauseRes.json().catch(() => ({}));
-                    console.error(`[RULE ERROR] Failed to pause campaign ${campaignId}:`, err.error?.message);
+              } else if (rule.triggerMetric === "CPL") {
+                if (totalLeads > 0) { // Only evaluate CPL if we actually have leads
+                  if (rule.triggerOperator === "GREATER_THAN" && cpl > rule.triggerValue) {
+                    isTriggered = true;
+                  } else if (rule.triggerOperator === "LESS_THAN" && cpl < rule.triggerValue) {
+                    isTriggered = true;
                   }
                 }
-                triggeredRulesCount++;
+              }
+
+              // Execute action if triggered
+              if (isTriggered) {
+                // Pause campaign action
+                if (rule.action === "PAUSE") {
+                  const targetCampaignIds = rule.targetId === "ALL" 
+                    ? Array.from(new Set(insightsForToday.map(i => i.campaignId)))
+                    : [rule.targetId];
+
+                  for (const campaignId of targetCampaignIds) {
+                    // Pause campaign via Facebook Graph API
+                    // POST https://graph.facebook.com/v21.0/{campaign_id}?status=PAUSED&access_token={token}
+                    const pauseUrl = `https://graph.facebook.com/v21.0/${campaignId}?status=PAUSED&access_token=${socialAccount.accessToken}`;
+                    const pauseRes = await fetch(pauseUrl, { method: "POST" });
+                    
+                    if (pauseRes.ok) {
+                      console.log(`[RULE TRIGGERED] Successfully paused campaign ${campaignId} due to rule: ${rule.name}`);
+                    } else {
+                      const err = await pauseRes.json().catch(() => ({}));
+                      console.error(`[RULE ERROR] Failed to pause campaign ${campaignId}:`, err.error?.message);
+                    }
+                  }
+                  triggeredRulesCount++;
+                }
               }
             }
           }
