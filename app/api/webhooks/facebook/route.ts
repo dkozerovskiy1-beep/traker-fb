@@ -39,7 +39,8 @@ export async function POST(req: Request) {
 
       // Fetch the page token from our DB to authorize Graph API requests
       const page = await db.fbPage.findUnique({
-        where: { id: pageId }
+        where: { id: pageId },
+        include: { socialAccount: true }
       });
 
       if (!page) {
@@ -67,10 +68,11 @@ export async function POST(req: Request) {
           // Don't moderate comments created by the page itself to prevent infinite loop
           if (authorFbId === pageId) continue;
 
-          // Fetch active moderation rules for this Page OR global rules (pageId is null)
+          // Fetch active moderation rules for this Page OR global rules (pageId is null) owned by the page's owner user
           const activeRules = await db.moderationRule.findMany({
             where: {
               isActive: true,
+              userId: page.socialAccount.userId,
               OR: [
                 { pageId },
                 { pageId: null }

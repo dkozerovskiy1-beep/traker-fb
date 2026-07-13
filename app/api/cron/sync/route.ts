@@ -530,6 +530,7 @@ export async function GET(req: Request) {
             const activeRules = await db.moderationRule.findMany({
               where: {
                 isActive: true,
+                userId: page.socialAccount.userId,
                 OR: [
                   { pageId: page.id },
                   { pageId: null }
