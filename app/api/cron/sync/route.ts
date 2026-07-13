@@ -69,14 +69,10 @@ export async function GET(req: Request) {
           fbAdAccounts = await getManagedAdAccounts(socialAccount.accessToken);
         } catch (err) {
           console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id}:`, err);
-          fbAdAccounts = socialAccount.adAccounts.map(ad => ({
-            id: ad.id,
-            name: ad.name,
-            currency: ad.currency,
-            timezone_name: ad.timezoneName,
-            account_status: ad.status === "ACTIVE" ? 1 : 2,
-            amount_spent: 0
-          }));
+          // If the access token is invalid, expired, or revoked, subsequent Graph API calls for its 
+          // campaigns, adsets, ads, and insights will also fail. To prevent dozens of hanging HTTP 
+          // requests that cause Vercel timeouts, we skip this social account entirely.
+          return;
         }
 
         // Parallelize processing of all managed ad accounts for this social account
