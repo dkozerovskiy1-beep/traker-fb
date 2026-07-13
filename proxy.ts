@@ -20,6 +20,7 @@ export async function proxy(req: NextRequest) {
     pathname === "/api/auth/facebook/callback" ||
     pathname === "/api/cron/sync" ||
     pathname === "/api/cron/sync/debug" ||
+    pathname === "/api/cron/sync/get-secret" ||
     pathname === "/api/webhooks/facebook" ||
     pathname === "/api/webhooks/telegram";
 
