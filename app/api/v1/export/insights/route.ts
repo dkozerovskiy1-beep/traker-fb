@@ -55,6 +55,8 @@ export async function GET(req: Request) {
     const socialAccounts = await db.fbSocialAccount.findMany({
       where: { userId: user.id },
       select: {
+        id: true,
+        name: true,
         adAccounts: {
           select: {
             id: true,
@@ -67,19 +69,20 @@ export async function GET(req: Request) {
       }
     });
 
-    const allAdAccounts = socialAccounts.flatMap(s => s.adAccounts);
-
-    // Map of adAccountId -> clientTag
+    // Map of adAccountId -> clientTag (defaulting to social account name e.g. "HAVEN BIZ")
     const adAccountMap = new Map<string, { name: string; clientTag: string; currency: string; status: string }>();
 
-    for (const acc of allAdAccounts) {
-      const clientTag = acc.clientTag?.trim() || acc.name || acc.id;
-      adAccountMap.set(acc.id, {
-        name: acc.name,
-        clientTag,
-        currency: acc.currency || "USD",
-        status: acc.status
-      });
+    for (const socialAcc of socialAccounts) {
+      for (const acc of socialAcc.adAccounts) {
+        // Use custom ad account clientTag if explicitly set, otherwise fallback to social account name (e.g. HAVEN BIZ)
+        const clientTag = acc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
+        adAccountMap.set(acc.id, {
+          name: acc.name,
+          clientTag,
+          currency: acc.currency || "USD",
+          status: acc.status
+        });
+      }
     }
 
     const targetAdAccountIds = Array.from(adAccountMap.keys());
@@ -117,28 +120,30 @@ export async function GET(req: Request) {
     const clientAggregates = new Map<string, ClientAggregate>();
 
     // Initialize map for all tagged accounts
-    for (const acc of allAdAccounts) {
-      const tag = acc.clientTag?.trim() || acc.name || acc.id;
+    for (const socialAcc of socialAccounts) {
+      for (const acc of socialAcc.adAccounts) {
+        const tag = acc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
 
-      if (clientIdParam && tag.toLowerCase() !== clientIdParam.toLowerCase()) {
-        continue;
-      }
+        if (clientIdParam && tag.toLowerCase() !== clientIdParam.toLowerCase()) {
+          continue;
+        }
 
-      if (!clientAggregates.has(tag)) {
-        clientAggregates.set(tag, {
-          client_id: tag,
-          currency: "USD",
-          spend: 0,
-          impressions: 0,
-          clicks: 0,
-          unique_clicks: 0,
-          fb_leads: 0,
-          conversions: 0,
-          ad_accounts_count: 1
-        });
-      } else {
-        const existing = clientAggregates.get(tag)!;
-        existing.ad_accounts_count += 1;
+        if (!clientAggregates.has(tag)) {
+          clientAggregates.set(tag, {
+            client_id: tag,
+            currency: "USD",
+            spend: 0,
+            impressions: 0,
+            clicks: 0,
+            unique_clicks: 0,
+            fb_leads: 0,
+            conversions: 0,
+            ad_accounts_count: 1
+          });
+        } else {
+          const existing = clientAggregates.get(tag)!;
+          existing.ad_accounts_count += 1;
+        }
       }
     }
 

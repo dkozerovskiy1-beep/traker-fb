@@ -468,75 +468,7 @@ export default function AccountsClient({
         )}
       </div>
 
-      {/* Ad Accounts & CRM Client Tagging Section */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
-          <div>
-            <h2>Рекламні кабінети та прив'язка до CRM</h2>
-            <p className="subtitle">Вкажіть теги клієнтів (наприклад: PROFFIT #1, PROFFIT #2), щоб відгружати витрати на ваш зовнішній дашборд</p>
-          </div>
-        </div>
 
-        {socialAccounts.flatMap(s => s.adAccounts).length === 0 ? (
-          <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)", fontSize: "14px" }}>
-            Немає підключених рекламних кабінетів.
-          </div>
-        ) : (
-          <div className="table-container">
-            <table className="custom-table">
-              <thead>
-                <tr>
-                  <th>Рекламний кабінет</th>
-                  <th>Профіль</th>
-                  <th>Валюта</th>
-                  <th>Статус</th>
-                  <th>Тег Клієнта (CRM)</th>
-                  <th>Дії</th>
-                </tr>
-              </thead>
-              <tbody>
-                {socialAccounts.flatMap(acc =>
-                  acc.adAccounts.map(ad => (
-                    <tr key={ad.id}>
-                      <td>
-                        <div style={{ fontWeight: "600" }}>{ad.name}</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {ad.id}</div>
-                      </td>
-                      <td>{acc.name}</td>
-                      <td>{ad.currency || "USD"}</td>
-                      <td>
-                        <span className={`badge ${ad.status === "ACTIVE" ? "badge-success" : "badge-error"}`}>
-                          {ad.status === "ACTIVE" ? "Активний" : "Деактивовано"}
-                        </span>
-                      </td>
-                      <td>
-                        {ad.clientTag ? (
-                          <span className="badge badge-info" style={{ fontSize: "12px", padding: "4px 10px" }}>
-                            🏷️ {ad.clientTag}
-                          </span>
-                        ) : (
-                          <span style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic" }}>
-                            Не прив'язано
-                          </span>
-                        )}
-                      </td>
-                      <td>
-                        <button
-                          className="btn btn-secondary"
-                          style={{ padding: "6px 12px", fontSize: "12px" }}
-                          onClick={() => handleEditClientTag(ad.id, ad.clientTag)}
-                        >
-                          {ad.clientTag ? "Змінити тег" : "+ Прив'язати клієнта"}
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
       {/* Invite Links History */}
       <div className="card">
