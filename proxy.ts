@@ -20,7 +20,8 @@ export async function proxy(req: NextRequest) {
     pathname === "/api/auth/facebook/callback" ||
     pathname === "/api/cron/sync" ||
     pathname === "/api/webhooks/facebook" ||
-    pathname === "/api/webhooks/telegram";
+    pathname === "/api/webhooks/telegram" ||
+    pathname.startsWith("/api/v1/export/");
 
   const isAsset =
     pathname.startsWith("/_next/") ||
