@@ -63,6 +63,7 @@ export default function AccountsClient({
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
   const [exportApiKey, setExportApiKey] = useState<string | null>(currentUser?.exportApiKey || null);
   const [isGeneratingExportKey, setIsGeneratingExportKey] = useState(false);
+  const [isExportCardExpanded, setIsExportCardExpanded] = useState(false);
 
   // Invite states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -72,6 +73,14 @@ export default function AccountsClient({
   const [isLoading, setIsLoading] = useState(false);
 
   const handleGenerateExportKey = async () => {
+    if (exportApiKey) {
+      const confirmed = await confirm(
+        "Ви дійсно хочете створити новий API ключ? Старий ключ стане недійсним і перестане працювати на вашому VPS сервері!",
+        { title: "Перегенерація API Ключа" }
+      );
+      if (!confirmed) return;
+    }
+
     setIsGeneratingExportKey(true);
     try {
       const res = await fetch("/api/user/export-key", { method: "POST" });
@@ -410,60 +419,109 @@ export default function AccountsClient({
         )}
       </div>
 
-      {/* Export REST API Key Card */}
+      {/* Collapsible Export REST API Key Card */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <div 
+          style={{ 
+            display: "flex", 
+            justifyContent: "space-between", 
+            alignItems: "center", 
+            cursor: "pointer",
+            userSelect: "none"
+          }}
+          onClick={() => setIsExportCardExpanded(!isExportCardExpanded)}
+        >
           <div>
-            <h2>API Експорту для зовнішнього дашборду (VPS)</h2>
-            <p className="subtitle">Використовуйте секретний ключ для отримання витрат по клієнтах на вашому сервері</p>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h2 style={{ fontSize: "16px", margin: 0 }}>API Експорту для зовнішнього дашборду (VPS)</h2>
+              {exportApiKey ? (
+                <span className="badge badge-success" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                  🟢 Ключ активовано
+                </span>
+              ) : (
+                <span className="badge badge-warning" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                  ⚪️ Не налаштовано
+                </span>
+              )}
+            </div>
+            <p className="subtitle" style={{ marginTop: "4px", margin: 0 }}>
+              Налаштування секретного ключа для відгрузки витрат на ваш VPS серваку
+            </p>
           </div>
+
           <button
-            className="btn btn-primary"
-            onClick={handleGenerateExportKey}
-            disabled={isGeneratingExportKey}
+            className="btn btn-secondary"
+            style={{ padding: "6px 14px", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExportCardExpanded(!isExportCardExpanded);
+            }}
           >
-            {exportApiKey ? "Перегерувати ключ" : "Створити API Ключ"}
+            <span>{isExportCardExpanded ? "▲ Згорнути" : "▼ Розгорнути налаштування"}</span>
           </button>
         </div>
 
-        {exportApiKey ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className="form-group">
-              <label className="form-label">Ваш секретний API Ключ експорту:</label>
-              <div style={{ display: "flex", gap: "10px" }}>
-                <input
-                  type="text"
-                  className="form-input"
-                  readOnly
-                  value={exportApiKey}
-                  style={{ fontFamily: "var(--font-mono)", fontSize: "13px", color: "var(--color-emerald)", fontWeight: "600" }}
-                />
+        {isExportCardExpanded && (
+          <div style={{ borderTop: "1px solid var(--border-color)", marginTop: "16px", paddingTop: "16px" }}>
+            {exportApiKey ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="form-group">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
+                    <label className="form-label" style={{ margin: 0 }}>Ваш секретний API Ключ експорту:</label>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: "4px 10px", fontSize: "11px", color: "var(--color-warning)" }}
+                      onClick={handleGenerateExportKey}
+                      disabled={isGeneratingExportKey}
+                    >
+                      {isGeneratingExportKey ? "Генерація..." : "🔄 Перегенерувати новий ключ"}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <input
+                      type="text"
+                      className="form-input"
+                      readOnly
+                      value={exportApiKey}
+                      style={{ fontFamily: "var(--font-mono)", fontSize: "13px", color: "var(--color-emerald)", fontWeight: "600" }}
+                    />
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => copyToClipboard(exportApiKey)}
+                    >
+                      Копіювати
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{
+                  backgroundColor: "rgba(8, 10, 16, 0.5)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "var(--radius-md)",
+                  padding: "16px"
+                }}>
+                  <span style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px", display: "block", marginBottom: "8px" }}>
+                    Приклад запиту з вашого сервера (cURL / Python / Node.js):
+                  </span>
+                  <code style={{ fontSize: "12px", color: "#a5b4fc", display: "block", overflowX: "auto", whiteSpace: "pre-wrap" }}>
+                    GET {typeof window !== "undefined" ? window.location.origin : "https://varta-flow.app"}/api/v1/export/insights?key={exportApiKey}&date_from=2026-07-30&date_to=2026-07-31
+                  </code>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: "16px", display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                <span style={{ fontSize: "14px", color: "var(--text-secondary)" }}>
+                  API ключ ще не згенеровано. Натисніть кнопку нижче, щоб створити секретний ключ для підключення вашого VPS сервера.
+                </span>
                 <button
-                  className="btn btn-secondary"
-                  onClick={() => copyToClipboard(exportApiKey)}
+                  className="btn btn-primary"
+                  onClick={handleGenerateExportKey}
+                  disabled={isGeneratingExportKey}
                 >
-                  Копіювати
+                  {isGeneratingExportKey ? "Генерація..." : "🔑 Створити API Ключ"}
                 </button>
               </div>
-            </div>
-
-            <div style={{
-              backgroundColor: "rgba(8, 10, 16, 0.5)",
-              border: "1px solid var(--border-color)",
-              borderRadius: "var(--radius-md)",
-              padding: "16px"
-            }}>
-              <span style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px", display: "block", marginBottom: "8px" }}>
-                Приклад запиту з вашого сервера (cURL / Python / Node.js):
-              </span>
-              <code style={{ fontSize: "12px", color: "#a5b4fc", display: "block", overflowX: "auto", whiteSpace: "pre-wrap" }}>
-                GET {typeof window !== "undefined" ? window.location.origin : "https://varta-flow.com"}/api/v1/export/insights?key={exportApiKey}&date_from=2026-07-30&date_to=2026-07-31
-              </code>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "14px" }}>
-            API ключ ще не згенеровано. Натисніть кнопку "Створити API Ключ" вище.
+            )}
           </div>
         )}
       </div>
