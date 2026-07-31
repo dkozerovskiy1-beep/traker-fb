@@ -119,6 +119,26 @@ export async function GET(req: Request) {
               }
             });
 
+            // SMART OPTIMIZATION TO PREVENT META GRAPH API 400 ERRORS & RATE LIMIT REJECTIONS:
+            // If the account is DISABLED/UNSETTLED/CLOSED and it was already synced at least once in DB,
+            // or if it has zero spent lifetime and is disabled, WE SKIP querying campaigns/ads/insights!
+            // This guarantees Meta Graph API never receives 400/403 errors from querying disabled accounts.
+            const isAlreadySyncedDisabled =
+              newStatus === "DISABLED" &&
+              oldAdAccount &&
+              oldAdAccount.status === "DISABLED" &&
+              oldAdAccount.lastSyncedAt != null;
+
+            const isZeroSpendDisabled = newStatus === "DISABLED" && parseFloat(fbAdAcc.amount_spent || "0") === 0;
+
+            if (isAlreadySyncedDisabled || isZeroSpendDisabled) {
+              await db.fbAdAccount.update({
+                where: { id: adAccount.id },
+                data: { lastSyncedAt: new Date() }
+              }).catch(() => {});
+              return; // Stop processing this disabled account to save API calls
+            }
+
             try {
               const [fbCampaigns, fbAdSets, fbAds] = await Promise.all([
                 getAdAccountCampaigns(adAccount.id, socialAccount.accessToken),
@@ -229,8 +249,24 @@ export async function GET(req: Request) {
               for (const ad of fbAds) {
                 const oldAd = existingAds.find(a => a.id === ad.id);
 
-                if (oldAd && user && user.telegramChatId) {
-                  if (oldAd.effectiveStatus !== "DISAPPROVED" && ad.effective_status === "DISAPPROVED" && user.alertOnRejections) {
+                if (user && user.telegramChatId) {
+                  // Determine if the ad was created recently (last 24 hours) to notify on first sync
+                  const createdTime = ad.created_time ? new Date(ad.created_time) : new Date();
+                  const isRecentAd = (Date.now() - createdTime.getTime()) < 24 * 60 * 60 * 1000;
+
+                  // 1. Alert on Rejections (Disapproved ads)
+                  let shouldAlertRejection = false;
+                  if (ad.effective_status === "DISAPPROVED" && user.alertOnRejections) {
+                    if (oldAd) {
+                      // Alert if status changed to DISAPPROVED
+                      shouldAlertRejection = oldAd.effectiveStatus !== "DISAPPROVED";
+                    } else {
+                      // New ad found, alert only if it was created recently to avoid spamming old history
+                      shouldAlertRejection = isRecentAd;
+                    }
+                  }
+
+                  if (shouldAlertRejection) {
                     telegramAlertPromises.push(
                       sendTelegramAlert(
                         `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
@@ -244,7 +280,23 @@ export async function GET(req: Request) {
                     );
                   }
 
-                  if (oldAd.effectiveStatus === "DISAPPROVED" && ad.effective_status === "ACTIVE" && user.alertOnApprovals) {
+                  // 2. Alert on Approvals (Active ads)
+                  let shouldAlertApproval = false;
+                  if (ad.effective_status === "ACTIVE" && user.alertOnApprovals) {
+                    if (oldAd) {
+                      // Alert if it transitioned to ACTIVE from a moderation state or disapproval
+                      const wasPendingOrDisapproved = 
+                        oldAd.effectiveStatus === "PENDING_REVIEW" || 
+                        oldAd.effectiveStatus === "IN_PROCESS" || 
+                        oldAd.effectiveStatus === "DISAPPROVED";
+                      shouldAlertApproval = wasPendingOrDisapproved;
+                    } else {
+                      // New ad found, alert only if it was created recently to avoid spamming old history
+                      shouldAlertApproval = isRecentAd;
+                    }
+                  }
+
+                  if (shouldAlertApproval) {
                     telegramAlertPromises.push(
                       sendTelegramAlert(
                         `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
@@ -441,8 +493,13 @@ export async function GET(req: Request) {
               });
 
               syncedAccountsCount++;
-            } catch (adAccError) {
-              console.error(`Error syncing insights for ad account ${adAccount.id}:`, adAccError);
+            } catch (adAccError: any) {
+              console.error(`Error syncing insights for ad account ${adAccount.id}:`, adAccError?.message || adAccError);
+              // Mark ad account as DISABLED and set lastSyncedAt so we don't retry it on future cron runs
+              await db.fbAdAccount.update({
+                where: { id: adAccount.id },
+                data: { status: "DISABLED", lastSyncedAt: new Date() }
+              }).catch(() => {});
             }
           })
         );

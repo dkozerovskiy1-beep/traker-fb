@@ -345,11 +345,12 @@ export interface FbAdData {
   adset_id: string;
   rejection_reason?: string | null;
   creative?: { id: string; effective_object_story_id?: string | null } | null;
+  created_time?: string;
 }
 
 export async function getAdAccountAds(adAccountId: string, accessToken: string): Promise<FbAdData[]> {
-  const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PENDING_REVIEW", "DISAPPROVED"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id}&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PENDING_REVIEW", "DISAPPROVED", "IN_PROCESS"] }]);
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id},created_time&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -372,7 +373,8 @@ export async function getAdAccountAds(adAccountId: string, accessToken: string):
       creative: ad.creative ? {
         id: ad.creative.id,
         effective_object_story_id: ad.creative.effective_object_story_id
-      } : null
+      } : null,
+      created_time: ad.created_time
     };
   });
 }

@@ -19,7 +19,7 @@ interface FbSocialAccountItem {
   avatarUrl: string | null;
   status: string;
   tokenExpiresAt: Date | null;
-  adAccounts: { id: string; name: string; currency: string; status: string; spend: number }[];
+  adAccounts: { id: string; name: string; clientTag?: string | null; currency: string; status: string; spend: number }[];
   pages: { id: string; name: string }[];
 }
 
@@ -28,6 +28,7 @@ interface UserSettings {
   email: string;
   name: string | null;
   telegramChatId: string | null;
+  exportApiKey?: string | null;
   alertOnBans: boolean;
   alertOnRejections: boolean;
   alertOnApprovals: boolean;
@@ -60,6 +61,8 @@ export default function AccountsClient({
   const [alertOnApprovals, setAlertOnApprovals] = useState(currentUser?.alertOnApprovals ?? false);
   const [alertOnComments, setAlertOnComments] = useState(currentUser?.alertOnComments ?? true);
   const [isUpdatingSettings, setIsUpdatingSettings] = useState(false);
+  const [exportApiKey, setExportApiKey] = useState<string | null>(currentUser?.exportApiKey || null);
+  const [isGeneratingExportKey, setIsGeneratingExportKey] = useState(false);
 
   // Invite states
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -67,6 +70,49 @@ export default function AccountsClient({
   const [isOneTime, setIsOneTime] = useState(true);
   const [newInviteUrl, setNewInviteUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleGenerateExportKey = async () => {
+    setIsGeneratingExportKey(true);
+    try {
+      const res = await fetch("/api/user/export-key", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setExportApiKey(data.apiKey);
+        toast.success("API Ключ експорту успішно згенеровано!");
+      } else {
+        toast.error("Помилка генерації ключа: " + data.error);
+      }
+    } catch (err: any) {
+      toast.error("Сталася помилка: " + err.message);
+    } finally {
+      setIsGeneratingExportKey(false);
+    }
+  };
+
+  const handleEditClientTag = async (adAccountId: string, currentTag?: string | null) => {
+    const newTag = await prompt("Введіть тег/ID клієнта для цього рекламного кабінету (наприклад: PROFFIT #1):", {
+      title: "Прив'язка до клієнта CRM",
+      defaultValue: currentTag || ""
+    });
+    if (newTag === null) return;
+
+    try {
+      const res = await fetch("/api/accounts/update-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adAccountId, clientTag: newTag.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Тег клієнта успішно збережено!");
+        router.refresh();
+      } else {
+        toast.error("Помилка збереження: " + data.error);
+      }
+    } catch (err: any) {
+      toast.error("Сталася помилка: " + err.message);
+    }
+  };
 
   useEffect(() => {
     if (errorParam) {
@@ -364,152 +410,133 @@ export default function AccountsClient({
         )}
       </div>
 
-      {/* NEW: Scalable & beautiful Telegram Alert Settings Section */}
-      {currentUser && (
-        <div className="card" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      {/* Export REST API Key Card */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
           <div>
-            <h2>Налаштування Telegram-сповіщень</h2>
-            <p className="subtitle">Отримуйте миттєві сповіщення про бани, відхилення або коментарі</p>
+            <h2>API Експорту для зовнішнього дашборду (VPS)</h2>
+            <p className="subtitle">Використовуйте секретний ключ для отримання витрат по клієнтах на вашому сервері</p>
           </div>
+          <button
+            className="btn btn-primary"
+            onClick={handleGenerateExportKey}
+            disabled={isGeneratingExportKey}
+          >
+            {exportApiKey ? "Перегерувати ключ" : "Створити API Ключ"}
+          </button>
+        </div>
 
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: "24px",
-            alignItems: "start",
-            borderTop: "1px solid var(--border-color)",
-            paddingTop: "20px"
-          }}>
-            {/* Left side: Toggles */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px" }}>
-                Обирайте, які сповіщення отримувати:
-              </span>
-
-              {[
-                { key: "alertOnBans", label: "🚫 Блокування рекламних кабінетів", state: alertOnBans },
-                { key: "alertOnRejections", label: "❌ Відхилення оголошень (Disapproved)", state: alertOnRejections },
-                { key: "alertOnApprovals", label: "✅ Успішне проходження модерації оголошеннями", state: alertOnApprovals },
-                { key: "alertOnComments", label: "💬 Автоматична модерація спам-коментарів", state: alertOnComments }
-              ].map(toggle => (
-                <div key={toggle.key} style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                  <input
-                    type="checkbox"
-                    id={toggle.key}
-                    checked={toggle.state}
-                    disabled={!telegramChatId}
-                    onChange={(e) => handleToggleChange(toggle.key, e.target.checked)}
-                    style={{
-                      width: "18px",
-                      height: "18px",
-                      accentColor: "var(--color-accent)",
-                      cursor: telegramChatId ? "pointer" : "not-allowed",
-                      opacity: telegramChatId ? 1 : 0.4
-                    }}
-                  />
-                  <label
-                    htmlFor={toggle.key}
-                    style={{
-                      fontSize: "14px",
-                      cursor: telegramChatId ? "pointer" : "not-allowed",
-                      color: telegramChatId ? "white" : "var(--text-muted)",
-                      fontWeight: "500"
-                    }}
-                  >
-                    {toggle.label}
-                  </label>
-                </div>
-              ))}
-              {!telegramChatId && (
-                <span style={{ fontSize: "12px", color: "var(--color-warning)" }}>
-                  ⚠️ Спочатку підключіть ваш Telegram праворуч, щоб активувати вибір сповіщень.
-                </span>
-              )}
+        {exportApiKey ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+            <div className="form-group">
+              <label className="form-label">Ваш секретний API Ключ експорту:</label>
+              <div style={{ display: "flex", gap: "10px" }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  readOnly
+                  value={exportApiKey}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: "13px", color: "var(--color-emerald)", fontWeight: "600" }}
+                />
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => copyToClipboard(exportApiKey)}
+                >
+                  Копіювати
+                </button>
+              </div>
             </div>
 
-            {/* Right side: Telegram Bot Linking status */}
             <div style={{
-              backgroundColor: "rgba(8, 10, 16, 0.4)",
+              backgroundColor: "rgba(8, 10, 16, 0.5)",
               border: "1px solid var(--border-color)",
               borderRadius: "var(--radius-md)",
-              padding: "20px",
-              display: "flex",
-              flexDirection: "column",
-              gap: "16px",
-              justifyContent: "center",
-              alignItems: "center",
-              textAlign: "center"
+              padding: "16px"
             }}>
-              {telegramChatId ? (
-                <>
-                  <div style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: "rgba(16, 185, 129, 0.1)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-success)" strokeWidth="2.5">
-                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                      <polyline points="22 4 12 14.01 9 11.01" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: "15px", color: "white", marginBottom: "4px" }}>Telegram підключено!</h3>
-                    <p style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                      Бот буде надсилати сповіщення у ваш особистий чат (ID: <code>{telegramChatId}</code>)
-                    </p>
-                  </div>
-                  <button
-                    className="btn btn-danger"
-                    style={{ padding: "6px 16px", fontSize: "12px" }}
-                    disabled={isUpdatingSettings}
-                    onClick={handleDisconnectTelegram}
-                  >
-                    Вимкнути сповіщення
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{
-                    width: "48px",
-                    height: "48px",
-                    borderRadius: "50%",
-                    backgroundColor: "rgba(59, 130, 246, 0.1)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--color-info)" strokeWidth="2.5">
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 style={{ fontSize: "15px", color: "white", marginBottom: "4px" }}>Підписка на сповіщення</h3>
-                    <p style={{ fontSize: "12px", color: "var(--text-secondary)", maxWidth: "260px" }}>
-                      Підключіть Telegram, щоб миттєво дізнаватися про проблеми чи бани кабінетів.
-                    </p>
-                  </div>
-                  <a
-                    href={`https://t.me/${botUsername}?start=${currentUser.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-primary"
-                    style={{ textDecoration: "none", color: "#04060a" }}
-                  >
-                    🔗 Підключити Telegram
-                  </a>
-                  <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-                    Відкриє Telegram та прив'яже ваш акаунт автоматично
-                  </span>
-                </>
-              )}
+              <span style={{ fontSize: "12px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.5px", display: "block", marginBottom: "8px" }}>
+                Приклад запиту з вашого сервера (cURL / Python / Node.js):
+              </span>
+              <code style={{ fontSize: "12px", color: "#a5b4fc", display: "block", overflowX: "auto", whiteSpace: "pre-wrap" }}>
+                GET {typeof window !== "undefined" ? window.location.origin : "https://varta-flow.com"}/api/v1/export/insights?key={exportApiKey}&date_from=2026-07-30&date_to=2026-07-31
+              </code>
             </div>
           </div>
+        ) : (
+          <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "14px" }}>
+            API ключ ще не згенеровано. Натисніть кнопку "Створити API Ключ" вище.
+          </div>
+        )}
+      </div>
+
+      {/* Ad Accounts & CRM Client Tagging Section */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <div>
+            <h2>Рекламні кабінети та прив'язка до CRM</h2>
+            <p className="subtitle">Вкажіть теги клієнтів (наприклад: PROFFIT #1, PROFFIT #2), щоб відгружати витрати на ваш зовнішній дашборд</p>
+          </div>
         </div>
-      )}
+
+        {socialAccounts.flatMap(s => s.adAccounts).length === 0 ? (
+          <div style={{ textAlign: "center", padding: "30px", color: "var(--text-muted)", fontSize: "14px" }}>
+            Немає підключених рекламних кабінетів.
+          </div>
+        ) : (
+          <div className="table-container">
+            <table className="custom-table">
+              <thead>
+                <tr>
+                  <th>Рекламний кабінет</th>
+                  <th>Профіль</th>
+                  <th>Валюта</th>
+                  <th>Статус</th>
+                  <th>Тег Клієнта (CRM)</th>
+                  <th>Дії</th>
+                </tr>
+              </thead>
+              <tbody>
+                {socialAccounts.flatMap(acc =>
+                  acc.adAccounts.map(ad => (
+                    <tr key={ad.id}>
+                      <td>
+                        <div style={{ fontWeight: "600" }}>{ad.name}</div>
+                        <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {ad.id}</div>
+                      </td>
+                      <td>{acc.name}</td>
+                      <td>{ad.currency || "USD"}</td>
+                      <td>
+                        <span className={`badge ${ad.status === "ACTIVE" ? "badge-success" : "badge-error"}`}>
+                          {ad.status === "ACTIVE" ? "Активний" : "Деактивовано"}
+                        </span>
+                      </td>
+                      <td>
+                        {ad.clientTag ? (
+                          <span className="badge badge-info" style={{ fontSize: "12px", padding: "4px 10px" }}>
+                            🏷️ {ad.clientTag}
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic" }}>
+                            Не прив'язано
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          onClick={() => handleEditClientTag(ad.id, ad.clientTag)}
+                        >
+                          {ad.clientTag ? "Змінити тег" : "+ Прив'язати клієнта"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Invite Links History */}
       <div className="card">

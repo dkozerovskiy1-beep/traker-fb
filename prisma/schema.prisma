@@ -16,6 +16,7 @@ model User {
   name               String?
   password           String
   telegramChatId     String?
+  exportApiKey       String?            @unique
   alertOnBans        Boolean            @default(true)
   alertOnRejections  Boolean            @default(true)
   alertOnApprovals   Boolean            @default(false)
@@ -56,6 +57,7 @@ model FbSocialAccount {
 model FbAdAccount {
   id              String         @id
   name            String
+  clientTag       String?
   currency        String         @default("USD")
   timezoneName    String         @default("UTC")
   spend           Float          @default(0)
