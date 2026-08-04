@@ -79,7 +79,9 @@ export async function GET(req: Request) {
         await Promise.all(
           fbAdAccounts.map(async (fbAdAcc) => {
             const oldAdAccount = socialAccount.adAccounts.find(ad => ad.id === fbAdAcc.id);
-            const newStatus = fbAdAcc.account_status === 1 ? "ACTIVE" : "DISABLED";
+            // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 100 = PENDING_CLOSURE, 101 = CLOSED
+            const isMetaDisabled = fbAdAcc.account_status === 2 || fbAdAcc.account_status === 100 || fbAdAcc.account_status === 101;
+            const newStatus = isMetaDisabled ? "DISABLED" : "ACTIVE";
 
             if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
               const user = (socialAccount as any).user;
@@ -495,10 +497,10 @@ export async function GET(req: Request) {
               syncedAccountsCount++;
             } catch (adAccError: any) {
               console.error(`Error syncing insights for ad account ${adAccount.id}:`, adAccError?.message || adAccError);
-              // Mark ad account as DISABLED and set lastSyncedAt so we don't retry it on future cron runs
+              // Do NOT mark ad account as DISABLED on transient API error! Just update lastSyncedAt.
               await db.fbAdAccount.update({
                 where: { id: adAccount.id },
-                data: { status: "DISABLED", lastSyncedAt: new Date() }
+                data: { lastSyncedAt: new Date() }
               }).catch(() => {});
             }
           })
