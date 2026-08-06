@@ -559,127 +559,130 @@ export async function GET(req: Request) {
           const commentsData = await commentsRes.json();
           const fbComments = commentsData.data || [];
 
-          for (const fbComment of fbComments) {
-            // Don't process comments from the page itself
-            if (fbComment.from?.id === page.id) continue;
-
-            // Upsert comment into DB
-            await db.fbComment.upsert({
-              where: { fbCommentId: fbComment.id },
-              update: {
-                message: fbComment.message,
-                isHidden: fbComment.is_hidden,
-                status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
-                updatedAt: new Date()
-              },
-              create: {
-                fbCommentId: fbComment.id,
-                pageId: page.id,
-                postId: item.storyId,
-                message: fbComment.message,
-                authorName: fbComment.from?.name || "Невідомий",
-                authorFbId: fbComment.from?.id,
-                isHidden: fbComment.is_hidden,
-                status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
-                fbCreatedAt: fbComment.created_time ? new Date(fbComment.created_time) : null
-              }
-            });
-            syncedCommentsCount++;
-
-            // Check if this comment already has a moderation log
-            const existingLog = await db.moderationLog.findFirst({
-              where: { commentId: fbComment.id }
-            });
-            if (existingLog) continue;
-
-            // Safety limit: only auto-moderate comments created within the last 24 hours
-            if (fbComment.created_time) {
-              const commentTime = new Date(fbComment.created_time).getTime();
-              const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
-              if (commentTime < oneDayAgo) {
-                continue; // Skip auto-moderation for old comments
-              }
+          // Pre-fetch active moderation rules for this page once
+          const activeRules = await db.moderationRule.findMany({
+            where: {
+              isActive: true,
+              userId: page.socialAccount.userId,
+              OR: [
+                { pageId: page.id },
+                { pageId: null }
+              ]
             }
+          });
 
-            // Apply moderation rules
-            const activeRules = await db.moderationRule.findMany({
-              where: {
-                isActive: true,
-                userId: page.socialAccount.userId,
-                OR: [
-                  { pageId: page.id },
-                  { pageId: null }
-                ]
+          // Parallelize comment upserts and moderation processing
+          await Promise.all(
+            fbComments.map(async (fbComment: any) => {
+              // Don't process comments from the page itself
+              if (fbComment.from?.id === page.id) return;
+
+              // Upsert comment into DB
+              await db.fbComment.upsert({
+                where: { fbCommentId: fbComment.id },
+                update: {
+                  message: fbComment.message,
+                  isHidden: fbComment.is_hidden,
+                  status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
+                  updatedAt: new Date()
+                },
+                create: {
+                  fbCommentId: fbComment.id,
+                  pageId: page.id,
+                  postId: item.storyId,
+                  message: fbComment.message,
+                  authorName: fbComment.from?.name || "Невідомий",
+                  authorFbId: fbComment.from?.id,
+                  isHidden: fbComment.is_hidden,
+                  status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
+                  fbCreatedAt: fbComment.created_time ? new Date(fbComment.created_time) : null
+                }
+              });
+              syncedCommentsCount++;
+
+              if (activeRules.length === 0) return;
+
+              // Safety limit: only auto-moderate comments created within the last 24 hours
+              if (fbComment.created_time) {
+                const commentTime = new Date(fbComment.created_time).getTime();
+                const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+                if (commentTime < oneDayAgo) return;
               }
-            });
 
-            for (const rule of activeRules) {
-              let matchesRule = false;
-              const commentText = fbComment.message;
+              // Check if this comment already has a moderation log
+              const existingLog = await db.moderationLog.findFirst({
+                where: { commentId: fbComment.id }
+              });
+              if (existingLog) return;
 
-              if (rule.type === "STOP_WORDS") {
-                const stopWords = rule.keywords.split(",").map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
-                const lowerComment = commentText.toLowerCase();
-                matchesRule = stopWords.some(word => lowerComment.includes(word));
-              } else if (rule.type === "LINKS") {
-                const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
-                matchesRule = linkRegex.test(commentText);
-              } else if (rule.type === "TELEGRAM") {
-                const tgRegex = /(t\.me|telegram\.me|@[\w_]{5,})/gi;
-                matchesRule = tgRegex.test(commentText);
-              } else if (rule.type === "HIDE_ALL") {
-                matchesRule = true;
-              }
+              for (const rule of activeRules) {
+                let matchesRule = false;
+                const commentText = fbComment.message || "";
 
-              if (matchesRule && !fbComment.is_hidden) {
-                const result = await moderateFacebookComment(
-                  fbComment.id,
-                  rule.action as "HIDE" | "DELETE",
-                  page.accessToken
-                );
+                if (rule.type === "STOP_WORDS") {
+                  const stopWords = rule.keywords.split(",").map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+                  const lowerComment = commentText.toLowerCase();
+                  matchesRule = stopWords.some(word => lowerComment.includes(word));
+                } else if (rule.type === "LINKS") {
+                  const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+                  matchesRule = linkRegex.test(commentText);
+                } else if (rule.type === "TELEGRAM") {
+                  const tgRegex = /(t\.me|telegram\.me|@[\w_]{5,})/gi;
+                  matchesRule = tgRegex.test(commentText);
+                } else if (rule.type === "HIDE_ALL") {
+                  matchesRule = true;
+                }
 
-                if (result.success) {
-                  await db.moderationLog.create({
-                    data: {
-                      pageId: page.id,
-                      postId: item.storyId,
-                      commentId: fbComment.id,
-                      commentText: fbComment.message,
-                      authorName: fbComment.from?.name || "Невідомий",
-                      actionTaken: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
-                      ruleMatched: rule.name
+                if (matchesRule && !fbComment.is_hidden) {
+                  const result = await moderateFacebookComment(
+                    fbComment.id,
+                    rule.action as "HIDE" | "DELETE",
+                    page.accessToken
+                  );
+
+                  if (result.success) {
+                    await db.moderationLog.create({
+                      data: {
+                        pageId: page.id,
+                        postId: item.storyId,
+                        commentId: fbComment.id,
+                        commentText: fbComment.message,
+                        authorName: fbComment.from?.name || "Невідомий",
+                        actionTaken: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
+                        ruleMatched: rule.name
+                      }
+                    });
+
+                    // Send Telegram alert if user has alertOnComments enabled
+                    const user = page.socialAccount.user;
+                    if (user && user.telegramChatId && user.alertOnComments) {
+                      await sendTelegramAlert(
+                        `💬 <b>[VartaFlow Alert] КОМЕНТАР МОДЕРОВАНО</b>\n\n` +
+                        `• <b>Сторінка:</b> ${page.name}\n` +
+                        `• <b>Автор:</b> ${fbComment.from?.name || "Невідомий"}\n` +
+                        `• <b>Коментар:</b> <i>"${fbComment.message}"</i>\n` +
+                        `• <b>Дія:</b> ${rule.action === "HIDE" ? "ПРИХОВАНО" : "ВИДАЛЕНО"}\n` +
+                        `• <b>Правило:</b> ${rule.name}`,
+                        user.telegramChatId
+                      ).catch(e => console.error("Failed to send telegram moderation alert:", e));
                     }
-                  });
 
-                  // Send Telegram alert if user has alertOnComments enabled
-                  const user = page.socialAccount.user;
-                  if (user && user.telegramChatId && user.alertOnComments) {
-                    await sendTelegramAlert(
-                      `💬 <b>[VartaFlow Alert] КОМЕНТАР МОДЕРОВАНО</b>\n\n` +
-                      `• <b>Сторінка:</b> ${page.name}\n` +
-                      `• <b>Автор:</b> ${fbComment.from?.name || "Невідомий"}\n` +
-                      `• <b>Коментар:</b> <i>"${fbComment.message}"</i>\n` +
-                      `• <b>Дія:</b> ${rule.action === "HIDE" ? "ПРИХОВАНО" : "ВИДАЛЕНО"}\n` +
-                      `• <b>Правило:</b> ${rule.name}`,
-                      user.telegramChatId
-                    ).catch(e => console.error("Failed to send telegram moderation alert:", e));
+                    // Update comment status in DB
+                    await db.fbComment.update({
+                      where: { fbCommentId: fbComment.id },
+                      data: {
+                        status: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
+                        isHidden: true
+                      }
+                    });
+
+                    moderatedCommentsCount++;
+                    break; // Stop after first matching rule
                   }
-
-                  // Update comment status in DB
-                  await db.fbComment.update({
-                    where: { fbCommentId: fbComment.id },
-                    data: {
-                      status: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
-                      isHidden: true
-                    }
-                  });
-
-                  moderatedCommentsCount++;
-                  break; // Stop after first matching rule
                 }
               }
-            }
-          }
+            })
+          );
         } catch (pageError) {
           console.error(`Error fetching comments for story ${item.storyId}:`, pageError);
         }
