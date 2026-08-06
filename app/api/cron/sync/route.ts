@@ -35,10 +35,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Limit sync range to prevent execution timeouts on Vercel (default: last 2 days)
-    // Old historical stats don't change, so we only need to sync today and yesterday.
+    // Limit sync range to prevent execution timeouts on Vercel (default: last 4 days)
+    // Syncing the last 4 days ensures timezone shifts and recent attributions are fully updated.
     const daysParam = searchParams.get("days");
-    const daysToSync = daysParam ? parseInt(daysParam) : 2;
+    const daysToSync = daysParam ? parseInt(daysParam) : 4;
 
     const today = new Date();
     const syncStartDate = new Date();
@@ -121,24 +121,26 @@ export async function GET(req: Request) {
               }
             });
 
-            // SMART OPTIMIZATION TO PREVENT META GRAPH API 400 ERRORS & RATE LIMIT REJECTIONS:
-            // If the account is DISABLED/UNSETTLED/CLOSED and it was already synced at least once in DB,
-            // or if it has zero spent lifetime and is disabled, WE SKIP querying campaigns/ads/insights!
-            // This guarantees Meta Graph API never receives 400/403 errors from querying disabled accounts.
-            const isAlreadySyncedDisabled =
+            // SMART OPTIMIZATION TO PREVENT UNNECESSARY META GRAPH API CALLS:
+            // Skip disabled accounts ONLY if they were disabled more than 7 days ago AND have already been synced.
+            // For accounts disabled recently (within 7 days) or zero lastSyncedAt, WE STILL SYNC INSIGHTS
+            // to capture all remaining spend before and during disablement!
+            const disabledThresholdMs = 7 * 24 * 60 * 60 * 1000;
+            const isOldDisabled =
               newStatus === "DISABLED" &&
               oldAdAccount &&
               oldAdAccount.status === "DISABLED" &&
-              oldAdAccount.lastSyncedAt != null;
+              oldAdAccount.disabledAt != null &&
+              (Date.now() - new Date(oldAdAccount.disabledAt).getTime()) > disabledThresholdMs;
 
             const isZeroSpendDisabled = newStatus === "DISABLED" && parseFloat(fbAdAcc.amount_spent || "0") === 0;
 
-            if (isAlreadySyncedDisabled || isZeroSpendDisabled) {
+            if ((isOldDisabled && oldAdAccount?.lastSyncedAt != null) || isZeroSpendDisabled) {
               await db.fbAdAccount.update({
                 where: { id: adAccount.id },
                 data: { lastSyncedAt: new Date() }
               }).catch(() => {});
-              return; // Stop processing this disabled account to save API calls
+              return; // Stop processing this old/zero-spend disabled account to save API calls
             }
 
             try {
@@ -147,6 +149,13 @@ export async function GET(req: Request) {
                 getAdAccountAdSets(adAccount.id, socialAccount.accessToken),
                 getAdAccountAds(adAccount.id, socialAccount.accessToken)
               ]);
+
+              // Ensure fallback dummy campaign exists to avoid foreign key constraint errors
+              await db.fbCampaign.upsert({
+                where: { id: "unknown" },
+                update: { adAccountId: adAccount.id, updatedAt: new Date() },
+                create: { id: "unknown", name: "Невідома кампанія", adAccountId: adAccount.id }
+              }).catch(() => {});
 
               // Parallelize campaign updates
               await Promise.all(
@@ -193,6 +202,13 @@ export async function GET(req: Request) {
                 );
               }
 
+              // Ensure fallback dummy adset exists to avoid foreign key constraint errors
+              await db.fbAdSet.upsert({
+                where: { id: "unknown" },
+                update: { updatedAt: new Date() },
+                create: { id: "unknown", name: "Невідома група оголошень", campaignId: "unknown" }
+              }).catch(() => {});
+
               // Parallelize adsets updates
               await Promise.all(
                 fbAdSets.map(adset =>
@@ -224,17 +240,18 @@ export async function GET(req: Request) {
 
               if (missingAdSetIds.length > 0) {
                 await Promise.all(
-                  missingAdSetIds.map(adsetId =>
-                    db.fbAdSet.upsert({
+                  missingAdSetIds.map(adsetId => {
+                    const parentCampId = fbAdSets.find(s => s.id === adsetId)?.campaign_id || "unknown";
+                    return db.fbAdSet.upsert({
                       where: { id: adsetId },
                       update: { updatedAt: new Date() },
                       create: {
                         id: adsetId,
                         name: `Adset ${adsetId}`,
-                        campaignId: fbAdSets.find(s => s.id === adsetId)?.campaign_id || "unknown"
+                        campaignId: parentCampId
                       }
-                    })
-                  )
+                    });
+                  })
                 );
               }
 

@@ -298,8 +298,7 @@ export interface FbCampaignData {
 }
 
 export async function getAdAccountCampaigns(adAccountId: string, accessToken: string): Promise<FbCampaignData[]> {
-  const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PENDING_REVIEW", "DISAPPROVED"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/campaigns?fields=id,name,status,effective_status&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/campaigns?fields=id,name,status,effective_status&limit=1000&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -319,8 +318,7 @@ export interface FbAdSetData {
 }
 
 export async function getAdAccountAdSets(adAccountId: string, accessToken: string): Promise<FbAdSetData[]> {
-  const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PENDING_REVIEW", "DISAPPROVED"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/adsets?fields=id,name,status,effective_status,campaign{id}&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/adsets?fields=id,name,status,effective_status,campaign{id}&limit=1000&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -349,8 +347,7 @@ export interface FbAdData {
 }
 
 export async function getAdAccountAds(adAccountId: string, accessToken: string): Promise<FbAdData[]> {
-  const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PENDING_REVIEW", "DISAPPROVED", "IN_PROCESS"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id},created_time&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id},created_time&limit=1000&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
