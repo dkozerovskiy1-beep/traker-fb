@@ -35,10 +35,10 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Limit sync range to prevent execution timeouts on Vercel (default: last 4 days)
-    // Syncing the last 4 days ensures timezone shifts and recent attributions are fully updated.
+    // Limit sync range to prevent execution timeouts on Vercel (default: last 2 days)
+    // Old historical stats don't change, so we only need to sync today and yesterday.
     const daysParam = searchParams.get("days");
-    const daysToSync = daysParam ? parseInt(daysParam) : 4;
+    const daysToSync = daysParam ? parseInt(daysParam) : 2;
 
     const today = new Date();
     const syncStartDate = new Date();
@@ -121,26 +121,25 @@ export async function GET(req: Request) {
               }
             });
 
-            // SMART OPTIMIZATION TO PREVENT UNNECESSARY META GRAPH API CALLS:
-            // Skip disabled accounts ONLY if they were disabled more than 7 days ago AND have already been synced.
-            // For accounts disabled recently (within 7 days) or zero lastSyncedAt, WE STILL SYNC INSIGHTS
-            // to capture all remaining spend before and during disablement!
-            const disabledThresholdMs = 7 * 24 * 60 * 60 * 1000;
-            const isOldDisabled =
+            // SMART OPTIMIZATION TO PREVENT META GRAPH API 400 ERRORS & RATE LIMIT REJECTIONS:
+            // If the account was ALREADY disabled on previous sync AND was synced at least once after being disabled,
+            // or if it has zero spent lifetime and is disabled, WE SKIP querying campaigns/ads/insights!
+            // This guarantees Meta Graph API is queried ONCE when an account gets banned to catch final spend, then skipped.
+            const isAlreadySyncedDisabled =
               newStatus === "DISABLED" &&
               oldAdAccount &&
               oldAdAccount.status === "DISABLED" &&
-              oldAdAccount.disabledAt != null &&
-              (Date.now() - new Date(oldAdAccount.disabledAt).getTime()) > disabledThresholdMs;
+              oldAdAccount.lastSyncedAt != null &&
+              (oldAdAccount.disabledAt == null || oldAdAccount.lastSyncedAt >= oldAdAccount.disabledAt);
 
             const isZeroSpendDisabled = newStatus === "DISABLED" && parseFloat(fbAdAcc.amount_spent || "0") === 0;
 
-            if ((isOldDisabled && oldAdAccount?.lastSyncedAt != null) || isZeroSpendDisabled) {
+            if (isAlreadySyncedDisabled || isZeroSpendDisabled) {
               await db.fbAdAccount.update({
                 where: { id: adAccount.id },
                 data: { lastSyncedAt: new Date() }
               }).catch(() => {});
-              return; // Stop processing this old/zero-spend disabled account to save API calls
+              return; // Stop processing this disabled account to save API calls
             }
 
             try {
