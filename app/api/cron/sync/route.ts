@@ -143,10 +143,11 @@ export async function GET(req: Request) {
             }
 
             try {
-              const [fbCampaigns, fbAdSets, fbAds] = await Promise.all([
+              const [fbCampaigns, fbAdSets, fbAds, insights] = await Promise.all([
                 getAdAccountCampaigns(adAccount.id, socialAccount.accessToken),
                 getAdAccountAdSets(adAccount.id, socialAccount.accessToken),
-                getAdAccountAds(adAccount.id, socialAccount.accessToken)
+                getAdAccountAds(adAccount.id, socialAccount.accessToken),
+                getAdAccountInsights(adAccount.id, socialAccount.accessToken, startDateStr, endDateStr)
               ]);
 
               // Ensure fallback dummy campaign exists to avoid foreign key constraint errors
@@ -364,14 +365,6 @@ export async function GET(req: Request) {
                   })
                 )
               );
-
-              const insights = await getAdAccountInsights(
-                adAccount.id,
-                socialAccount.accessToken,
-                startDateStr,
-                endDateStr
-              );
-
               // Parallelize daily insights upserts
               await Promise.all(
                 insights.map(insight => {
