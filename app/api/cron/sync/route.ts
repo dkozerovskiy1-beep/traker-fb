@@ -533,8 +533,11 @@ export async function GET(req: Request) {
     let syncedCommentsCount = 0;
     let moderatedCommentsCount = 0;
 
-    await Promise.all(
-      activeAdStoryIds.map(async (item) => {
+    const skipComments = searchParams.get("skipComments") === "true";
+
+    if (!skipComments) {
+      await Promise.all(
+        activeAdStoryIds.map(async (item) => {
         // Find the page in DB to get the page access token
         const page = await db.fbPage.findUnique({
           where: { id: item.pageId },
@@ -684,6 +687,7 @@ export async function GET(req: Request) {
         }
       })
     );
+    }
 
     return NextResponse.json({
       success: true,
