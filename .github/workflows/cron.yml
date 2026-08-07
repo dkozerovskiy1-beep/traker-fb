@@ -1,0 +1,19 @@
+name: VartaFlow Cron Sync
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual triggering from GitHub Actions UI
+
+jobs:
+  cron-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Sync Endpoint
+        run: |
+          echo "Triggering VartaFlow cron sync..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "https://varta-flow.app/api/cron/sync" \
+            -H "Authorization: Bearer varta_flow_secret_token_2026" \
+            --max-time 300)
+          echo "$RESPONSE"

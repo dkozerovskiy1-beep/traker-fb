@@ -365,9 +365,12 @@ export async function GET(req: Request) {
                   })
                 )
               );
+              // Filter out empty zero-activity insight rows to save DB writes
+              const activeInsights = insights.filter(i => i.spend > 0 || i.impressions > 0 || i.clicks > 0 || i.leads > 0);
+
               // Parallelize daily insights upserts
               await Promise.all(
-                insights.map(insight => {
+                activeInsights.map(insight => {
                   const dateObj = new Date(insight.date);
                   return db.dailyInsight.upsert({
                     where: {
