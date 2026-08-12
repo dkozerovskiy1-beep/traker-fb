@@ -121,15 +121,20 @@ export async function GET(req: Request) {
             });
 
             // SMART OPTIMIZATION TO PREVENT META GRAPH API 400 ERRORS & RATE LIMIT REJECTIONS:
-            // If the account was ALREADY disabled on previous sync AND was synced at least once after being disabled,
-            // or if it has zero spent lifetime and is disabled, WE SKIP querying campaigns/ads/insights!
-            // This guarantees Meta Graph API is queried ONCE when an account gets banned to catch final spend, then skipped.
+            // When an account is disabled by Meta, Meta continues settling final delayed spend for up to 3 days (72h).
+            // We allow syncing disabled accounts for 3 days after disabledAt to catch final finalized spend,
+            // then skip them afterwards to save API rate limits.
+            const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+            const isRecentlyDisabled =
+              oldAdAccount?.disabledAt != null &&
+              (Date.now() - new Date(oldAdAccount.disabledAt).getTime()) < THREE_DAYS_MS;
+
             const isAlreadySyncedDisabled =
               newStatus === "DISABLED" &&
               oldAdAccount &&
               oldAdAccount.status === "DISABLED" &&
-              oldAdAccount.lastSyncedAt != null &&
-              (oldAdAccount.disabledAt == null || oldAdAccount.lastSyncedAt >= oldAdAccount.disabledAt);
+              !isRecentlyDisabled &&
+              oldAdAccount.lastSyncedAt != null;
 
             const isZeroSpendDisabled = newStatus === "DISABLED" && parseFloat(fbAdAcc.amount_spent || "0") === 0;
 
@@ -138,7 +143,7 @@ export async function GET(req: Request) {
                 where: { id: adAccount.id },
                 data: { lastSyncedAt: new Date() }
               }).catch(() => {});
-              return; // Stop processing this disabled account to save API calls
+              return; // Stop processing old disabled account to save API calls
             }
 
             try {
