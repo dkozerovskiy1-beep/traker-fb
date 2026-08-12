@@ -2,6 +2,8 @@
  * Helper library for interacting with the Facebook Graph API.
  */
 
+import { roundCurrency } from "@/app/lib/dates";
+
 export interface FbProfile {
   id: string;
   name: string;
@@ -231,7 +233,7 @@ export async function moderateFacebookComment(
 
 /**
  * Fetches daily advertising insights (spend, clicks, leads) for a specific Ad Account.
- * Supports date range query.
+ * Supports date range query and handles pagination across all pages.
  */
 export async function getAdAccountInsights(
   adAccountId: string,
@@ -243,18 +245,26 @@ export async function getAdAccountInsights(
   
   // Fields to pull details at ad level: campaign, adset, ad, spend, impressions, clicks, unique_clicks, actions
   const fields = "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,unique_clicks,actions";
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
+  let url: string | null = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
 
-  const res = await fetch(url);
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`Failed to fetch insights for ${adAccountId}: ${err.error?.message || res.statusText}`);
+  const allRawInsights: any[] = [];
+
+  while (url) {
+    const res: Response = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Failed to fetch insights for ${adAccountId}: ${err.error?.message || res.statusText}`);
+    }
+
+    const responseData: any = await res.json();
+    const rawInsights = responseData.data || [];
+    allRawInsights.push(...rawInsights);
+
+    // Follow paging.next if available
+    url = responseData.paging?.next || null;
   }
 
-  const responseData = await res.json();
-  const rawInsights = responseData.data || [];
-
-  return rawInsights.map((insight: any) => {
+  return allRawInsights.map((insight: any) => {
     // Parse actions to extract leads and other conversions
     let leads = 0;
     let conversions = 0;
@@ -280,7 +290,7 @@ export async function getAdAccountInsights(
       adsetName: insight.adset_name,
       adId: insight.ad_id,
       adName: insight.ad_name,
-      spend: parseFloat(insight.spend || "0"),
+      spend: roundCurrency(parseFloat(insight.spend || "0")),
       impressions: parseInt(insight.impressions || "0", 10),
       clicks: parseInt(insight.clicks || "0", 10),
       uniqueClicks: parseInt(insight.unique_clicks || "0", 10),

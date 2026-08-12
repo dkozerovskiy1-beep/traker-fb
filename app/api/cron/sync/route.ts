@@ -10,11 +10,12 @@ import {
   moderateFacebookComment
 } from "@/app/lib/facebook";
 import { sendTelegramAlert } from "@/app/lib/telegram";
-
-// Helper to get formatted date string (YYYY-MM-DD)
-function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0];
-}
+import {
+  getKyivDateString,
+  getKyivTodayStr,
+  parseKyivDateToUTC,
+  roundCurrency
+} from "@/app/lib/dates";
 
 export async function GET(req: Request) {
   // 1. Authorize cron request
@@ -35,17 +36,15 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Limit sync range to prevent execution timeouts on Vercel (default: last 2 days)
-    // Old historical stats don't change, so we only need to sync today and yesterday.
+    // Limit sync range (default: last 3 days in GMT+3 timezone)
+    // Syncing 3 days (today, yesterday, day before) guarantees catching late-night finalized Meta spend.
     const daysParam = searchParams.get("days");
-    const daysToSync = daysParam ? parseInt(daysParam) : 2;
+    const daysToSync = daysParam ? parseInt(daysParam) : 3;
 
-    const today = new Date();
+    const endDateStr = getKyivTodayStr();
     const syncStartDate = new Date();
-    syncStartDate.setDate(today.getDate() - (daysToSync - 1));
-
-    const startDateStr = formatDate(syncStartDate);
-    const endDateStr = formatDate(today);
+    syncStartDate.setTime(syncStartDate.getTime() - (daysToSync - 1) * 24 * 60 * 60 * 1000);
+    const startDateStr = getKyivDateString(syncStartDate);
 
     // 2. Fetch all active Facebook Social Accounts with User preferences
     const activeSocialAccounts = await db.fbSocialAccount.findMany({
@@ -371,7 +370,12 @@ export async function GET(req: Request) {
               // Parallelize daily insights upserts
               await Promise.all(
                 activeInsights.map(insight => {
-                  const dateObj = new Date(insight.date);
+                  const dateObj = parseKyivDateToUTC(insight.date);
+                  const spendVal = roundCurrency(insight.spend);
+                  const ctrVal = insight.impressions > 0 ? roundCurrency((insight.clicks / insight.impressions) * 100) : 0;
+                  const cpcVal = insight.clicks > 0 ? roundCurrency(spendVal / insight.clicks) : 0;
+                  const cpmVal = insight.impressions > 0 ? roundCurrency((spendVal / insight.impressions) * 1000) : 0;
+
                   return db.dailyInsight.upsert({
                     where: {
                       date_adAccountId_campaignId_adsetId_adId: {
@@ -386,15 +390,15 @@ export async function GET(req: Request) {
                       campaignName: insight.campaignName,
                       adsetName: insight.adsetName,
                       adName: insight.adName,
-                      spend: insight.spend,
+                      spend: spendVal,
                       impressions: insight.impressions,
                       clicks: insight.clicks,
                       uniqueClicks: insight.uniqueClicks,
                       leads: insight.leads,
                       conversions: insight.conversions,
-                      ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
-                      cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
-                      cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0,
+                      ctr: ctrVal,
+                      cpc: cpcVal,
+                      cpm: cpmVal,
                       updatedAt: new Date()
                     },
                     create: {
@@ -406,15 +410,15 @@ export async function GET(req: Request) {
                       adsetName: insight.adsetName,
                       adId: insight.adId || "null",
                       adName: insight.adName,
-                      spend: insight.spend,
+                      spend: spendVal,
                       impressions: insight.impressions,
                       clicks: insight.clicks,
                       uniqueClicks: insight.uniqueClicks,
                       leads: insight.leads,
                       conversions: insight.conversions,
-                      ctr: insight.impressions > 0 ? (insight.clicks / insight.impressions) * 100 : 0,
-                      cpc: insight.clicks > 0 ? insight.spend / insight.clicks : 0,
-                      cpm: insight.impressions > 0 ? (insight.spend / insight.impressions) * 1000 : 0
+                      ctr: ctrVal,
+                      cpc: cpcVal,
+                      cpm: cpmVal
                     }
                   });
                 })

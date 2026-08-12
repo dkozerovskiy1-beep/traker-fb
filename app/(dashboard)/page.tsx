@@ -3,6 +3,7 @@ import { getLoggedInUser } from "../lib/auth";
 import AnalyticsClient from "./AnalyticsClient";
 import LandingPage from "../components/LandingPage";
 import { redirect } from "next/navigation";
+import { getKyivDateRange, roundCurrency } from "../lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -14,11 +15,6 @@ interface PageProps {
     customStartDate?: string;
     customEndDate?: string;
   }>;
-}
-
-// Helper to get formatted date string (YYYY-MM-DD)
-function formatDate(date: Date): string {
-  return date.toISOString().split("T")[0];
 }
 
 export default async function HomePage({ searchParams }: PageProps) {
@@ -34,35 +30,13 @@ export default async function HomePage({ searchParams }: PageProps) {
   const customStartDate = resolvedSearchParams.customStartDate || "";
   const customEndDate = resolvedSearchParams.customEndDate || "";
 
-  // Select Date Range based on period
-  let startDate = new Date();
-  let endDate = new Date();
-  
-  if (period === "today") {
-    startDate.setHours(0, 0, 0, 0);
-  } else if (period === "yesterday") {
-    startDate.setDate(startDate.getDate() - 1);
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setDate(endDate.getDate() - 1);
-    endDate.setHours(23, 59, 59, 999);
-  } else if (period === "last7") {
-    startDate.setDate(startDate.getDate() - 7);
-    startDate.setHours(0, 0, 0, 0);
-  } else if (period === "last30") {
-    startDate.setDate(startDate.getDate() - 30);
-    startDate.setHours(0, 0, 0, 0);
-  } else if (period === "month") {
-    startDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-    startDate.setHours(0, 0, 0, 0);
-  } else if (period === "custom" && customStartDate && customEndDate) {
-    startDate = new Date(customStartDate);
-    startDate.setHours(0, 0, 0, 0);
-    endDate = new Date(customEndDate);
-    endDate.setHours(23, 59, 59, 999);
-  } else {
-    // default today
-    startDate.setHours(0, 0, 0, 0);
-  }
+  // Select Date Range in GMT+3 timezone
+  const {
+    startDateStr,
+    endDateStr,
+    startDateObj: startDate,
+    endDateObj: endDate
+  } = getKyivDateRange(period, customStartDate, customEndDate);
 
   let adAccountOptions: any[] = [];
   let socialAccountOptions: any[] = [];
@@ -168,7 +142,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       const adIds = ads.map(a => a.id);
       
       const profileInsights = rawInsights.filter(i => adIds.includes(i.adAccountId));
-      const spend = profileInsights.reduce((sum, i) => sum + i.spend, 0);
+      const spend = roundCurrency(profileInsights.reduce((sum, i) => sum + i.spend, 0));
       const impressions = profileInsights.reduce((sum, i) => sum + i.impressions, 0);
       const clicks = profileInsights.reduce((sum, i) => sum + i.clicks, 0);
       const leads = profileInsights.reduce((sum, i) => sum + i.leads, 0);
@@ -271,7 +245,24 @@ export default async function HomePage({ searchParams }: PageProps) {
       rawInsights = rawInsights.filter(i => i.adAccountId === "act_4492817290192837");
       totals = { spend: 25.10, impressions: 1540, clicks: 45, leads: 4, conversions: 1 };
     }
+    totals.spend = roundCurrency(totals.spend);
+
+    return (
+      <AnalyticsClient
+        adAccounts={adAccountOptions}
+        socialAccounts={socialAccountOptions}
+        campaignsList={campaignsList}
+        dbInsights={rawInsights}
+        socialAccountsSummary={socialAccountsSummary}
+        totals={totals}
+        period={period}
+        startDate={startDateStr}
+        endDate={endDateStr}
+      />
+    );
   }
+
+  totals.spend = roundCurrency(totals.spend);
 
   return (
     <AnalyticsClient
@@ -282,8 +273,8 @@ export default async function HomePage({ searchParams }: PageProps) {
       socialAccountsSummary={socialAccountsSummary}
       totals={totals}
       period={period}
-      startDate={formatDate(startDate)}
-      endDate={formatDate(endDate)}
+      startDate={startDateStr}
+      endDate={endDateStr}
     />
   );
 }

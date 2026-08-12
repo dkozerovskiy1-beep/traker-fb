@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { roundCurrency } from "../lib/dates";
 
 interface AdAccountOption {
   id: string;
@@ -377,7 +378,7 @@ export default function AnalyticsClient({
   // Helper function to sum insights for a specific target filter
   const getSummedMetrics = (filterFn: (i: InsightItem) => boolean) => {
     const matched = dbInsights.filter(filterFn);
-    const spend = matched.reduce((sum, i) => sum + i.spend, 0);
+    const spend = roundCurrency(matched.reduce((sum, i) => sum + i.spend, 0));
     const impressions = matched.reduce((sum, i) => sum + i.impressions, 0);
     const clicks = matched.reduce((sum, i) => sum + i.clicks, 0);
     const leads = matched.reduce((sum, i) => sum + i.leads, 0);

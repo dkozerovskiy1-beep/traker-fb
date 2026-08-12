@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
-
-// Helper to format date object to YYYY-MM-DD
-function formatDate(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
+import {
+  getKyivTodayStr,
+  parseKyivDateToUTC,
+  roundCurrency
+} from "@/app/lib/dates";
 
 export async function GET(req: Request) {
   try {
@@ -35,8 +35,8 @@ export async function GET(req: Request) {
       );
     }
 
-    // 2. Parse Date Parameters
-    const todayStr = formatDate(new Date());
+    // 2. Parse Date Parameters in GMT+3 timezone
+    const todayStr = getKyivTodayStr();
     const dateParam = searchParams.get("date");
     const dateFromParam = searchParams.get("date_from");
     const dateToParam = searchParams.get("date_to");
@@ -45,11 +45,9 @@ export async function GET(req: Request) {
     let startDateStr = dateFromParam || dateParam || todayStr;
     let endDateStr = dateToParam || dateParam || todayStr;
 
-    const startDate = new Date(startDateStr);
-    startDate.setHours(0, 0, 0, 0);
-
-    const endDate = new Date(endDateStr);
-    endDate.setHours(23, 59, 59, 999);
+    const startDate = parseKyivDateToUTC(startDateStr);
+    const endDate = parseKyivDateToUTC(endDateStr);
+    endDate.setUTCHours(23, 59, 59, 999);
 
     // 3. Fetch all social accounts and ad accounts belonging to this user
     const socialAccounts = await db.fbSocialAccount.findMany({
@@ -181,18 +179,18 @@ export async function GET(req: Request) {
       agg.conversions += item.conversions;
     }
 
-    // Format output with calculated ratios
+    // Format output with calculated ratios and exact cent rounding
     const clientList = Array.from(clientAggregates.values()).map(agg => {
-      const spend = Number(agg.spend.toFixed(2));
+      const spend = roundCurrency(agg.spend);
       const impressions = agg.impressions;
       const clicks = agg.clicks;
       const uniqueClicks = agg.unique_clicks;
       const fbLeads = agg.fb_leads;
 
-      const ctr = impressions > 0 ? Number(((clicks / impressions) * 100).toFixed(2)) : 0;
-      const cpc = clicks > 0 ? Number((spend / clicks).toFixed(2)) : 0;
-      const cpm = impressions > 0 ? Number(((spend / impressions) * 1000).toFixed(2)) : 0;
-      const fbCpl = fbLeads > 0 ? Number((spend / fbLeads).toFixed(2)) : 0;
+      const ctr = impressions > 0 ? roundCurrency((clicks / impressions) * 100) : 0;
+      const cpc = clicks > 0 ? roundCurrency(spend / clicks) : 0;
+      const cpm = impressions > 0 ? roundCurrency((spend / impressions) * 1000) : 0;
+      const fbCpl = fbLeads > 0 ? roundCurrency(spend / fbLeads) : 0;
 
       return {
         client_id: agg.client_id,
