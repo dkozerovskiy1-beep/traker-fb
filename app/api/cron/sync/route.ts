@@ -10,6 +10,7 @@ import {
   moderateFacebookComment
 } from "@/app/lib/facebook";
 import { sendTelegramAlert } from "@/app/lib/telegram";
+import { getLoggedInUser } from "@/app/lib/auth";
 import {
   getKyivDateString,
   getKyivTodayStr,
@@ -18,15 +19,16 @@ import {
 } from "@/app/lib/dates";
 
 export async function GET(req: Request) {
-  // 1. Authorize cron request
+  // 1. Authorize cron request or logged-in user manual sync
+  const user = await getLoggedInUser().catch(() => null);
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
   
-  // In production, we compare the Bearer token or URL ?secret query parameter with our CRON_SECRET.
+  // In production, we compare the Bearer token or URL ?secret query parameter with our CRON_SECRET if not logged in.
   const { searchParams } = new URL(req.url);
   const querySecret = searchParams.get("secret");
 
-  if (process.env.NODE_ENV === "production" && cronSecret) {
+  if (process.env.NODE_ENV === "production" && cronSecret && !user) {
     const isHeaderAuth = authHeader === `Bearer ${cronSecret}`;
     const isQueryAuth = querySecret === cronSecret;
     
@@ -46,9 +48,12 @@ export async function GET(req: Request) {
     syncStartDate.setTime(syncStartDate.getTime() - (daysToSync - 1) * 24 * 60 * 60 * 1000);
     const startDateStr = getKyivDateString(syncStartDate);
 
-    // 2. Fetch all active Facebook Social Accounts with User preferences
+    // 2. Fetch all active Facebook Social Accounts (filtered to current user if manually triggered)
     const activeSocialAccounts = await db.fbSocialAccount.findMany({
-      where: { status: "ACTIVE" },
+      where: {
+        status: "ACTIVE",
+        ...(user ? { userId: user.id } : {})
+      },
       include: { 
         adAccounts: true,
         user: true
@@ -83,14 +88,14 @@ export async function GET(req: Request) {
             const newStatus = isMetaDisabled ? "DISABLED" : "ACTIVE";
 
             if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
-              const user = (socialAccount as any).user;
-              if (user && user.telegramChatId && user.alertOnBans) {
+              const accountUser = (socialAccount as any).user;
+              if (accountUser && accountUser.telegramChatId && accountUser.alertOnBans) {
                 await sendTelegramAlert(
                   `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
                   `• <b>Профіль:</b> ${socialAccount.name}\n` +
                   `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
                   `• <b>Статус:</b> DISABLED (Деактивовано)`,
-                  user.telegramChatId
+                  accountUser.telegramChatId
                 ).catch(e => console.error("Failed to send telegram ban alert:", e));
               }
             }
@@ -107,6 +112,7 @@ export async function GET(req: Request) {
                 currency: fbAdAcc.currency || "USD",
                 timezoneName: fbAdAcc.timezone_name || "UTC",
                 status: newStatus,
+                socialAccountId: socialAccount.id,
                 ...(disabledAtValue !== undefined ? { disabledAt: disabledAtValue } : {})
               },
               create: {
@@ -711,3 +717,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ success: false, error: error.message || "Internal Server Error" }, { status: 500 });
   }
 }
+
+export const POST = GET;
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, Fragment } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useToast } from "../../components/ToastProvider";
 
@@ -13,13 +13,22 @@ interface InviteLinkItem {
   usedByFbId: string | null;
 }
 
+interface FbAdAccountItem {
+  id: string;
+  name: string;
+  clientTag?: string | null;
+  currency: string;
+  status: string;
+  spend: number;
+}
+
 interface FbSocialAccountItem {
   id: string;
   name: string;
   avatarUrl: string | null;
   status: string;
   tokenExpiresAt: Date | null;
-  adAccounts: { id: string; name: string; clientTag?: string | null; currency: string; status: string; spend: number }[];
+  adAccounts: FbAdAccountItem[];
   pages: { id: string; name: string }[];
 }
 
@@ -40,6 +49,16 @@ interface AccountsClientProps {
   socialAccounts: FbSocialAccountItem[];
   currentUser: UserSettings | null;
   botUsername: string;
+}
+
+interface ReassignModalState {
+  isOpen: boolean;
+  adAccount: FbAdAccountItem | null;
+  currentSocialId: string;
+  currentSocialName: string;
+  targetSocialId: string;
+  clientTag: string;
+  isSaving: boolean;
 }
 
 export default function AccountsClient({
@@ -65,12 +84,99 @@ export default function AccountsClient({
   const [isGeneratingExportKey, setIsGeneratingExportKey] = useState(false);
   const [isExportCardExpanded, setIsExportCardExpanded] = useState(false);
 
+  // Sync state
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Expanded ad accounts rows state
+  const [expandedSocials, setExpandedSocials] = useState<Record<string, boolean>>({});
+
+  // Reassign Ad Account Modal State
+  const [reassignModal, setReassignModal] = useState<ReassignModalState>({
+    isOpen: false,
+    adAccount: null,
+    currentSocialId: "",
+    currentSocialName: "",
+    targetSocialId: "",
+    clientTag: "",
+    isSaving: false
+  });
+
   // Invite states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [isOneTime, setIsOneTime] = useState(true);
   const [newInviteUrl, setNewInviteUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  const toggleExpandSocial = (socialId: string) => {
+    setExpandedSocials(prev => ({
+      ...prev,
+      [socialId]: !prev[socialId]
+    }));
+  };
+
+  const handleSyncNow = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch("/api/accounts/sync-now", {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(`Синхронізація успішна! Оновлено ${data.syncedAccounts || 0} кабінетів.`);
+        router.refresh();
+      } else {
+        toast.error("Помилка синхронізації: " + (data.error || "Невідома помилка"));
+      }
+    } catch (err: any) {
+      toast.error("Помилка запиту: " + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleOpenReassignModal = (adAccount: FbAdAccountItem, social: FbSocialAccountItem) => {
+    setReassignModal({
+      isOpen: true,
+      adAccount,
+      currentSocialId: social.id,
+      currentSocialName: social.name,
+      targetSocialId: social.id,
+      clientTag: adAccount.clientTag || "",
+      isSaving: false
+    });
+  };
+
+  const handleSaveReassign = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reassignModal.adAccount) return;
+
+    setReassignModal(prev => ({ ...prev, isSaving: true }));
+    try {
+      const res = await fetch("/api/accounts/reassign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adAccountId: reassignModal.adAccount.id,
+          targetSocialAccountId: reassignModal.targetSocialId,
+          clientTag: reassignModal.clientTag
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Рекламний кабінет успішно перенесено!");
+        setReassignModal(prev => ({ ...prev, isOpen: false, isSaving: false }));
+        router.refresh();
+      } else {
+        toast.error("Помилка перенесення: " + data.error);
+        setReassignModal(prev => ({ ...prev, isSaving: false }));
+      }
+    } catch (err: any) {
+      toast.error("Сталася помилка: " + err.message);
+      setReassignModal(prev => ({ ...prev, isSaving: false }));
+    }
+  };
 
   const handleGenerateExportKey = async () => {
     if (exportApiKey) {
@@ -273,23 +379,41 @@ export default function AccountsClient({
   return (
     <>
       {/* Title Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px" }}>
         <div>
           <h1>Керування профілями</h1>
-          <p className="subtitle">Підключені соціальні профілі та рекламні кабінети</p>
+          <p className="subtitle">Підключені соціальні профілі, клієнти та рекламні кабінети</p>
         </div>
-        <button className="btn btn-primary" onClick={() => { setNewInviteUrl(""); setIsModalOpen(true); }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="12" y1="5" x2="12" y2="19"></line>
-            <line x1="5" y1="12" x2="19" y2="12"></line>
-          </svg>
-          <span>Створити інвайт-посилання</span>
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleSyncNow}
+            disabled={isSyncing}
+            style={{ display: "flex", alignItems: "center", gap: "8px" }}
+            title="Запустити примусову синхронізацію всіх кабінетів з Facebook API"
+          >
+            <span className={isSyncing ? "spin-animation" : ""} style={{ fontSize: "15px" }}>🔄</span>
+            <span>{isSyncing ? "Синхронізація..." : "Синхронізувати зараз"}</span>
+          </button>
+          <button className="btn btn-primary" onClick={() => { setNewInviteUrl(""); setIsModalOpen(true); }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            <span>Створити інвайт-посилання</span>
+          </button>
+        </div>
       </div>
 
       {/* Connected Accounts Table */}
       <div className="card">
-        <h2 style={{ marginBottom: "20px" }}>Підключені профілі</h2>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+          <h2 style={{ margin: 0 }}>Підключені профілі</h2>
+          <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+            Всього профілів: {socialAccounts.length}
+          </span>
+        </div>
+
         {socialAccounts.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
             Немає підключених акаунтів. Створіть посилання-запрошення вище та авторизуйте акаунт.
@@ -299,7 +423,7 @@ export default function AccountsClient({
             <table className="custom-table">
               <thead>
                 <tr>
-                  <th>Ім'я</th>
+                  <th>Ім'я клієнта / Профілю</th>
                   <th>Рекламні кабінети</th>
                   <th>Бізнес-сторінки</th>
                   <th>Загальні витрати</th>
@@ -311,106 +435,221 @@ export default function AccountsClient({
                 {socialAccounts.map((acc) => {
                   const totalSpend = acc.adAccounts.reduce((sum, ad) => sum + ad.spend, 0);
                   const activeCabinets = acc.adAccounts.filter(ad => ad.status === "ACTIVE").length;
+                  const isExpanded = !!expandedSocials[acc.id];
 
                   return (
-                    <tr key={acc.id}>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                          {acc.avatarUrl ? (
-                            <img
-                              src={acc.avatarUrl}
-                              alt={acc.name}
-                              style={{ width: "36px", height: "36px", borderRadius: "50%", border: "1px solid var(--border-color)" }}
-                            />
-                          ) : (
-                            <div style={{
-                              width: "36px",
-                              height: "36px",
-                              borderRadius: "50%",
-                              backgroundColor: "var(--border-color-glow)",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              fontWeight: "600",
-                              color: "var(--color-accent)"
-                            }}>
-                              {acc.name.charAt(0).toUpperCase()}
+                    <React.Fragment key={acc.id}>
+                      <tr>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                            {acc.avatarUrl ? (
+                              <img
+                                src={acc.avatarUrl}
+                                alt={acc.name}
+                                style={{ width: "36px", height: "36px", borderRadius: "50%", border: "1px solid var(--border-color)" }}
+                              />
+                            ) : (
+                              <div style={{
+                                width: "36px",
+                                height: "36px",
+                                borderRadius: "50%",
+                                backgroundColor: "var(--border-color-glow)",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontWeight: "600",
+                                color: "var(--color-accent)"
+                              }}>
+                                {acc.name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                <div style={{ fontWeight: "600" }}>{acc.name}</div>
+                                <button
+                                  onClick={() => handleRenameAccount(acc.id, acc.name)}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    color: "var(--text-muted)",
+                                    cursor: "pointer",
+                                    padding: "2px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    transition: "color 0.2s"
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.color = "var(--color-emerald)"}
+                                  onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+                                  title="Редагувати ім'я"
+                                >
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <path d="M12 20h9" />
+                                    <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                                  </svg>
+                                </button>
+                              </div>
+                              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
                             </div>
-                          )}
-                          <div>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <div style={{ fontWeight: "600" }}>{acc.name}</div>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ fontSize: "13px" }}>
+                            <strong>{activeCabinets}</strong> активних / {acc.adAccounts.length} всього
+                            <div style={{ marginTop: "6px" }}>
                               <button
-                                onClick={() => handleRenameAccount(acc.id, acc.name)}
+                                type="button"
+                                className="btn btn-secondary"
                                 style={{
-                                  background: "none",
-                                  border: "none",
-                                  color: "var(--text-muted)",
-                                  cursor: "pointer",
-                                  padding: "2px",
-                                  display: "flex",
+                                  padding: "3px 10px",
+                                  fontSize: "11px",
+                                  display: "inline-flex",
                                   alignItems: "center",
-                                  transition: "color 0.2s"
+                                  gap: "4px",
+                                  backgroundColor: isExpanded ? "rgba(59, 130, 246, 0.15)" : undefined,
+                                  borderColor: isExpanded ? "var(--color-accent)" : undefined
                                 }}
-                                onMouseEnter={(e) => e.currentTarget.style.color = "var(--color-emerald)"}
-                                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
-                                title="Редагувати ім'я"
+                                onClick={() => toggleExpandSocial(acc.id)}
                               >
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <path d="M12 20h9" />
-                                  <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                                </svg>
+                                <span>{isExpanded ? "▲ Сховати кабінети" : `▼ Кабінети (${acc.adAccounts.length})`}</span>
                               </button>
                             </div>
-                            <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontSize: "13px" }}>
-                          <strong>{activeCabinets}</strong> активних / {acc.adAccounts.length} всього
-                          <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
-                            {acc.adAccounts.slice(0, 2).map(ad => ad.name).join(", ")}
-                            {acc.adAccounts.length > 2 && "..."}
+                        </td>
+                        <td>
+                          <div style={{ fontSize: "13px" }}>
+                            <strong>{acc.pages.length}</strong> сторінок
+                            <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
+                              {acc.pages.slice(0, 2).map(p => p.name).join(", ")}
+                              {acc.pages.length > 2 && "..."}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <div style={{ fontSize: "13px" }}>
-                          <strong>{acc.pages.length}</strong> сторінок
-                          <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
-                            {acc.pages.slice(0, 2).map(p => p.name).join(", ")}
-                            {acc.pages.length > 2 && "..."}
+                        </td>
+                        <td>
+                          <span style={{ fontWeight: "600" }}>${totalSpend.toFixed(2)}</span>
+                        </td>
+                        <td>
+                          <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`}>
+                            {acc.status === "ACTIVE" ? "Активний" : "Неактивний"}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: "8px" }}>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ padding: "6px 12px", fontSize: "12px" }}
+                              onClick={() => router.push(`/?socialAccount=${acc.id}`)}
+                            >
+                              Статистика
+                            </button>
+                            <button
+                              className="btn btn-danger"
+                              style={{ padding: "6px 12px", fontSize: "12px" }}
+                              onClick={() => handleDisconnectAccount(acc.id, acc.name)}
+                            >
+                              Видалити
+                            </button>
                           </div>
-                        </div>
-                      </td>
-                      <td>
-                        <span style={{ fontWeight: "600" }}>${totalSpend.toFixed(2)}</span>
-                      </td>
-                      <td>
-                        <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`}>
-                          {acc.status === "ACTIVE" ? "Активний" : "Неактивний"}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <button
-                            className="btn btn-secondary"
-                            style={{ padding: "6px 12px", fontSize: "12px" }}
-                            onClick={() => router.push(`/?socialAccount=${acc.id}`)}
-                          >
-                            Статистика
-                          </button>
-                          <button
-                            className="btn btn-danger"
-                            style={{ padding: "6px 12px", fontSize: "12px" }}
-                            onClick={() => handleDisconnectAccount(acc.id, acc.name)}
-                          >
-                            Видалити
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+
+                      {/* Expanded Ad Accounts Table Row */}
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={6} style={{ backgroundColor: "rgba(12, 16, 27, 0.95)", padding: "16px 20px" }}>
+                            <div style={{
+                              border: "1px solid var(--border-color)",
+                              borderRadius: "var(--radius-md)",
+                              padding: "16px",
+                              backgroundColor: "rgba(4, 6, 10, 0.6)"
+                            }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                                <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-accent)" }}>
+                                  Рекламні кабінети клієнта "{acc.name}" ({acc.adAccounts.length})
+                                </span>
+                                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                  💡 Ви можете перенести кабінет до іншого клієнта або змінити його CRM тег
+                                </span>
+                              </div>
+
+                              {acc.adAccounts.length === 0 ? (
+                                <div style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0", textAlign: "center" }}>
+                                  У цього профілю наразі немає доступних рекламних кабінетів у Meta.
+                                </div>
+                              ) : (
+                                <table className="custom-table" style={{ fontSize: "12px", margin: 0 }}>
+                                  <thead>
+                                    <tr style={{ backgroundColor: "rgba(255,255,255,0.02)" }}>
+                                      <th>Кабінет (Назва та ID)</th>
+                                      <th>CRM Тег клієнта</th>
+                                      <th>Валюта</th>
+                                      <th>Витрати</th>
+                                      <th>Статус</th>
+                                      <th>Дії</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {acc.adAccounts.map(ad => (
+                                      <tr key={ad.id}>
+                                        <td>
+                                          <div style={{ fontWeight: "600", color: "var(--text-primary)" }}>{ad.name}</div>
+                                          <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                                            <code>{ad.id}</code>
+                                          </div>
+                                        </td>
+                                        <td>
+                                          {ad.clientTag ? (
+                                            <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                                              {ad.clientTag}
+                                            </span>
+                                          ) : (
+                                            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                              За замовчуванням ({acc.name})
+                                            </span>
+                                          )}
+                                        </td>
+                                        <td>
+                                          <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px" }}>{ad.currency}</span>
+                                        </td>
+                                        <td>
+                                          <span style={{ fontWeight: "600" }}>${ad.spend.toFixed(2)}</span>
+                                        </td>
+                                        <td>
+                                          <span className={`badge ${ad.status === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
+                                            {ad.status === "ACTIVE" ? "Активний" : "Деактивовано"}
+                                          </span>
+                                        </td>
+                                        <td>
+                                          <div style={{ display: "flex", gap: "6px" }}>
+                                            <button
+                                              type="button"
+                                              className="btn btn-secondary"
+                                              style={{ padding: "4px 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}
+                                              onClick={() => handleOpenReassignModal(ad, acc)}
+                                              title="Перенести цей кабінет до іншого профілю або змінити прив'язку"
+                                            >
+                                              <span>➡️ Перенести</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              className="btn btn-secondary"
+                                              style={{ padding: "4px 8px", fontSize: "11px" }}
+                                              onClick={() => handleEditClientTag(ad.id, ad.clientTag)}
+                                              title="Вказати тег клієнта для експорту API"
+                                            >
+                                              🏷️ CRM Тег
+                                            </button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -526,8 +765,6 @@ export default function AccountsClient({
         )}
       </div>
 
-
-
       {/* Invite Links History */}
       <div className="card">
         <h2 style={{ marginBottom: "20px" }}>Історія запрошень</h2>
@@ -594,6 +831,93 @@ export default function AccountsClient({
           </div>
         )}
       </div>
+
+      {/* Reassign Ad Account Modal */}
+      {reassignModal.isOpen && reassignModal.adAccount && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2>Перенесення кабінету</h2>
+              <button
+                style={{ cursor: "pointer", fontSize: "20px" }}
+                onClick={() => setReassignModal(prev => ({ ...prev, isOpen: false }))}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveReassign} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div>
+                <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "8px" }}>
+                  Перепризначення рекламного кабінету та всієї його аналітики іншому клієнту:
+                </p>
+                <div style={{
+                  padding: "12px 14px",
+                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "var(--radius-sm)"
+                }}>
+                  <div style={{ fontWeight: "600", fontSize: "14px" }}>{reassignModal.adAccount.name}</div>
+                  <div style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
+                    ID: <code>{reassignModal.adAccount.id}</code>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--color-accent)", marginTop: "4px" }}>
+                    Поточний клієнт: <strong>{reassignModal.currentSocialName}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Перенести до клієнта / профілю:</label>
+                <select
+                  className="form-input"
+                  value={reassignModal.targetSocialId}
+                  onChange={(e) => setReassignModal(prev => ({ ...prev, targetSocialId: e.target.value }))}
+                  style={{ cursor: "pointer" }}
+                >
+                  {socialAccounts.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (ID: {s.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">CRM Тег клієнта (необов'язково):</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="Наприклад: DUBAI або PROFFIT #1"
+                  value={reassignModal.clientTag}
+                  onChange={(e) => setReassignModal(prev => ({ ...prev, clientTag: e.target.value }))}
+                />
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Використовується для групування у вивантаженні API експорту на VPS
+                </span>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "16px" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setReassignModal(prev => ({ ...prev, isOpen: false }))}
+                  disabled={reassignModal.isSaving}
+                >
+                  Скасувати
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={reassignModal.isSaving}
+                >
+                  {reassignModal.isSaving ? "Збереження..." : "Зберегти перенесення"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Create Invite Modal */}
       {isModalOpen && (

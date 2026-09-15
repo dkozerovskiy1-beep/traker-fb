@@ -96,7 +96,8 @@ export async function GET(req: Request) {
           currency: adAccount.currency || "USD",
           timezoneName: adAccount.timezone_name || "UTC",
           status,
-          spend: adAccount.amount_spent ? parseFloat(adAccount.amount_spent) / 100 : 0 // FB returns amount_spent in cents
+          spend: adAccount.amount_spent ? parseFloat(adAccount.amount_spent) / 100 : 0, // FB returns amount_spent in cents
+          socialAccountId: fbSocialAccount.id
         },
         create: {
           id: adAccount.id,
