@@ -55,6 +55,7 @@ export async function GET(req: Request) {
       select: {
         id: true,
         name: true,
+        clientTag: true,
         adAccounts: {
           select: {
             id: true,
@@ -67,13 +68,13 @@ export async function GET(req: Request) {
       }
     });
 
-    // Map of adAccountId -> clientTag (defaulting to social account name e.g. "HAVEN BIZ")
+    // Map of adAccountId -> clientTag (Cascade: AdAccount Tag -> SocialAccount Tag -> SocialAccount Name -> AdAccount Name/ID)
     const adAccountMap = new Map<string, { name: string; clientTag: string; currency: string; status: string }>();
 
     for (const socialAcc of socialAccounts) {
       for (const acc of socialAcc.adAccounts) {
-        // Use custom ad account clientTag if explicitly set, otherwise fallback to social account name (e.g. HAVEN BIZ)
-        const clientTag = acc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
+        // Priority: 1. AdAccount custom clientTag -> 2. SocialAccount clientTag -> 3. SocialAccount name -> 4. AdAccount name/id
+        const clientTag = acc.clientTag?.trim() || socialAcc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
         adAccountMap.set(acc.id, {
           name: acc.name,
           clientTag,
@@ -120,7 +121,7 @@ export async function GET(req: Request) {
     // Initialize map for all tagged accounts
     for (const socialAcc of socialAccounts) {
       for (const acc of socialAcc.adAccounts) {
-        const tag = acc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
+        const tag = acc.clientTag?.trim() || socialAcc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
 
         if (clientIdParam && tag.toLowerCase() !== clientIdParam.toLowerCase()) {
           continue;

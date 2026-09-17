@@ -42,6 +42,7 @@ model InviteLink {
 model FbSocialAccount {
   id             String        @id
   name           String
+  clientTag      String?
   avatarUrl      String?
   accessToken    String
   tokenExpiresAt DateTime?

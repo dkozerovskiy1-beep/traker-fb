@@ -25,6 +25,7 @@ interface FbAdAccountItem {
 interface FbSocialAccountItem {
   id: string;
   name: string;
+  clientTag?: string | null;
   avatarUrl: string | null;
   status: string;
   tokenExpiresAt: Date | null;
@@ -135,6 +136,34 @@ export default function AccountsClient({
     }
   };
 
+  const handleEditSocialTag = async (socialAccountId: string, currentTag?: string | null, socialName?: string) => {
+    const newTag = await prompt(
+      `Введіть спільний Тег Клієнта/Проєкту для профілю "${socialName}" (наприклад: DUBAI).\nВсі кабінети цього соца автоматично успадкують цей тег:`,
+      {
+        title: "Тег Клієнта / Проєкту",
+        defaultValue: currentTag || ""
+      }
+    );
+    if (newTag === null) return;
+
+    try {
+      const res = await fetch("/api/accounts/update-social-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ socialAccountId, clientTag: newTag.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Тег проєкту успішно збережено!");
+        router.refresh();
+      } else {
+        toast.error("Помилка збереження: " + data.error);
+      }
+    } catch (err: any) {
+      toast.error("Сталася помилка: " + err.message);
+    }
+  };
+
   const handleOpenReassignModal = (adAccount: FbAdAccountItem, social: FbSocialAccountItem) => {
     setReassignModal({
       isOpen: true,
@@ -205,8 +234,8 @@ export default function AccountsClient({
   };
 
   const handleEditClientTag = async (adAccountId: string, currentTag?: string | null) => {
-    const newTag = await prompt("Введіть тег/ID клієнта для цього рекламного кабінету (наприклад: PROFFIT #1):", {
-      title: "Прив'язка до клієнта CRM",
+    const newTag = await prompt("Введіть персональний CRM Тег для цього рекламного кабінету (наприклад: PROFFIT #1 або DUBAI):\nЗалиште порожнім, щоб спадкувати тег профілю.", {
+      title: "Персональний CRM Тег кабінету",
       defaultValue: currentTag || ""
     });
     if (newTag === null) return;
@@ -219,7 +248,7 @@ export default function AccountsClient({
       });
       const data = await res.json();
       if (data.success) {
-        toast.success("Тег клієнта успішно збережено!");
+        toast.success("Тег кабінету успішно оновлено!");
         router.refresh();
       } else {
         toast.error("Помилка збереження: " + data.error);
@@ -438,7 +467,7 @@ export default function AccountsClient({
                   const isExpanded = !!expandedSocials[acc.id];
 
                   return (
-                    <React.Fragment key={acc.id}>
+                    <Fragment key={acc.id}>
                       <tr>
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
@@ -480,7 +509,7 @@ export default function AccountsClient({
                                   }}
                                   onMouseEnter={(e) => e.currentTarget.style.color = "var(--color-emerald)"}
                                   onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
-                                  title="Редагувати ім'я"
+                                  title="Редагувати ім'я профілю"
                                 >
                                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M12 20h9" />
@@ -488,7 +517,29 @@ export default function AccountsClient({
                                   </svg>
                                 </button>
                               </div>
-                              <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
+                                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEditSocialTag(acc.id, acc.clientTag, acc.name)}
+                                  style={{
+                                    background: acc.clientTag ? "rgba(59, 130, 246, 0.15)" : "rgba(255, 255, 255, 0.05)",
+                                    border: acc.clientTag ? "1px solid var(--color-accent)" : "1px dashed var(--border-color)",
+                                    borderRadius: "var(--radius-sm)",
+                                    padding: "2px 8px",
+                                    fontSize: "11px",
+                                    color: acc.clientTag ? "var(--color-accent)" : "var(--text-secondary)",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                    transition: "all 0.2s"
+                                  }}
+                                  title="Встановити спільний Тег Клієнта/Проєкту (наприклад: DUBAI) для всіх кабінетів цього соца"
+                                >
+                                  <span>🏷️ {acc.clientTag ? `Тег: ${acc.clientTag}` : "+ Тег проєкту"}</span>
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -562,12 +613,12 @@ export default function AccountsClient({
                               padding: "16px",
                               backgroundColor: "rgba(4, 6, 10, 0.6)"
                             }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
                                 <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-accent)" }}>
-                                  Рекламні кабінети клієнта "{acc.name}" ({acc.adAccounts.length})
+                                  Рекламні кабінети профілю "{acc.name}" ({acc.adAccounts.length})
                                 </span>
                                 <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                  💡 Ви можете перенести кабінет до іншого клієнта або змінити його CRM тег
+                                  💡 Кабінети автоматично спадкують тег профілю, якщо не вказано персональний
                                 </span>
                               </div>
 
@@ -598,9 +649,23 @@ export default function AccountsClient({
                                         </td>
                                         <td>
                                           {ad.clientTag ? (
-                                            <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px" }}>
-                                              {ad.clientTag}
-                                            </span>
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                              <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                                                {ad.clientTag}
+                                              </span>
+                                              <span style={{ fontSize: "10px", color: "var(--color-emerald)", fontWeight: "500" }} title="Кастомний персональний тег для цього кабінету">
+                                                (персональний)
+                                              </span>
+                                            </div>
+                                          ) : acc.clientTag ? (
+                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                              <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px", opacity: 0.85 }}>
+                                                {acc.clientTag}
+                                              </span>
+                                              <span style={{ fontSize: "10px", color: "var(--text-muted)" }} title="Автоматично спадкується від тегу соц-профілю">
+                                                (з профілю)
+                                              </span>
+                                            </div>
                                           ) : (
                                             <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                                               За замовчуванням ({acc.name})
@@ -634,7 +699,7 @@ export default function AccountsClient({
                                               className="btn btn-secondary"
                                               style={{ padding: "4px 8px", fontSize: "11px" }}
                                               onClick={() => handleEditClientTag(ad.id, ad.clientTag)}
-                                              title="Вказати тег клієнта для експорту API"
+                                              title="Вказати персональний CRM тег для цього кабінету"
                                             >
                                               🏷️ CRM Тег
                                             </button>
@@ -649,7 +714,7 @@ export default function AccountsClient({
                           </td>
                         </tr>
                       )}
-                    </React.Fragment>
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -877,23 +942,23 @@ export default function AccountsClient({
                 >
                   {socialAccounts.map(s => (
                     <option key={s.id} value={s.id}>
-                      {s.name} (ID: {s.id})
+                      {s.name} {s.clientTag ? `[Тег: ${s.clientTag}]` : ""} (ID: {s.id})
                     </option>
                   ))}
                 </select>
               </div>
 
               <div className="form-group">
-                <label className="form-label">CRM Тег клієнта (необов'язково):</label>
+                <label className="form-label">Персональний CRM Тег кабінету (необов'язково):</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="Наприклад: DUBAI або PROFFIT #1"
+                  placeholder="Залиште порожнім, щоб спадкувати тег профілю"
                   value={reassignModal.clientTag}
                   onChange={(e) => setReassignModal(prev => ({ ...prev, clientTag: e.target.value }))}
                 />
                 <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                  Використовується для групування у вивантаженні API експорту на VPS
+                  Якщо вказано, перевизначає спільний тег профілю у вивантаженні API експорту на VPS
                 </span>
               </div>
 
