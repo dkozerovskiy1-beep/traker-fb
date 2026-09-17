@@ -426,3 +426,87 @@ h2 {
   to { transform: rotate(360deg); }
 }
 
+/* Compact Table & Modern Tag Pills */
+.custom-table.table-compact th {
+  padding: 10px 14px;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  background-color: rgba(8, 10, 16, 0.75);
+}
+
+.custom-table.table-compact td {
+  padding: 10px 14px;
+  vertical-align: middle;
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.tag-pill-active {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
+}
+
+.tag-pill-active:hover {
+  background: rgba(59, 130, 246, 0.22);
+  border-color: #3b82f6;
+  color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.tag-pill-empty {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.18);
+  color: var(--text-muted);
+}
+
+.tag-pill-empty:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tag-chip:hover {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.tag-chip.active {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: var(--color-accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+

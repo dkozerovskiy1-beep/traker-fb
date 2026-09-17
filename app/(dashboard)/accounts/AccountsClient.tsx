@@ -62,6 +62,16 @@ interface ReassignModalState {
   isSaving: boolean;
 }
 
+interface TagModalState {
+  isOpen: boolean;
+  targetType: "social" | "adAccount";
+  targetId: string;
+  targetName: string;
+  currentTag: string;
+  inputTag: string;
+  isSaving: boolean;
+}
+
 export default function AccountsClient({
   initialInviteLinks,
   socialAccounts,
@@ -102,12 +112,33 @@ export default function AccountsClient({
     isSaving: false
   });
 
+  // Tag Modal State (with dropdown & existing tag chips)
+  const [tagModal, setTagModal] = useState<TagModalState>({
+    isOpen: false,
+    targetType: "social",
+    targetId: "",
+    targetName: "",
+    currentTag: "",
+    inputTag: "",
+    isSaving: false
+  });
+
   // Invite states
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [isOneTime, setIsOneTime] = useState(true);
   const [newInviteUrl, setNewInviteUrl] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+
+  // Collect all unique existing tags across social accounts and ad accounts
+  const existingTags = Array.from(
+    new Set(
+      [
+        ...socialAccounts.map(s => s.clientTag?.trim()),
+        ...socialAccounts.flatMap(s => s.adAccounts.map(a => a.clientTag?.trim()))
+      ].filter((t): t is string => Boolean(t))
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   const toggleExpandSocial = (socialId: string) => {
     setExpandedSocials(prev => ({
@@ -136,31 +167,86 @@ export default function AccountsClient({
     }
   };
 
-  const handleEditSocialTag = async (socialAccountId: string, currentTag?: string | null, socialName?: string) => {
-    const newTag = await prompt(
-      `Введіть спільний Тег Клієнта/Проєкту для профілю "${socialName}" (наприклад: DUBAI).\nВсі кабінети цього соца автоматично успадкують цей тег:`,
-      {
-        title: "Тег Клієнта / Проєкту",
-        defaultValue: currentTag || ""
-      }
-    );
-    if (newTag === null) return;
+  // Open Tag Edit Modal
+  const openTagModal = (
+    targetType: "social" | "adAccount",
+    targetId: string,
+    targetName: string,
+    currentTag?: string | null
+  ) => {
+    setTagModal({
+      isOpen: true,
+      targetType,
+      targetId,
+      targetName,
+      currentTag: currentTag || "",
+      inputTag: currentTag || "",
+      isSaving: false
+    });
+  };
+
+  const handleSaveTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTagModal(prev => ({ ...prev, isSaving: true }));
+
+    const endpoint = tagModal.targetType === "social" 
+      ? "/api/accounts/update-social-tag" 
+      : "/api/accounts/update-tag";
+
+    const payload = tagModal.targetType === "social"
+      ? { socialAccountId: tagModal.targetId, clientTag: tagModal.inputTag.trim() || null }
+      : { adAccountId: tagModal.targetId, clientTag: tagModal.inputTag.trim() || null };
 
     try {
-      const res = await fetch("/api/accounts/update-social-tag", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ socialAccountId, clientTag: newTag.trim() })
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (data.success) {
         toast.success("Тег проєкту успішно збережено!");
+        setTagModal(prev => ({ ...prev, isOpen: false, isSaving: false }));
         router.refresh();
       } else {
         toast.error("Помилка збереження: " + data.error);
+        setTagModal(prev => ({ ...prev, isSaving: false }));
       }
     } catch (err: any) {
       toast.error("Сталася помилка: " + err.message);
+      setTagModal(prev => ({ ...prev, isSaving: false }));
+    }
+  };
+
+  const handleClearTag = async () => {
+    setTagModal(prev => ({ ...prev, isSaving: true, inputTag: "" }));
+
+    const endpoint = tagModal.targetType === "social" 
+      ? "/api/accounts/update-social-tag" 
+      : "/api/accounts/update-tag";
+
+    const payload = tagModal.targetType === "social"
+      ? { socialAccountId: tagModal.targetId, clientTag: null }
+      : { adAccountId: tagModal.targetId, clientTag: null };
+
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Тег успішно видалено!");
+        setTagModal(prev => ({ ...prev, isOpen: false, isSaving: false }));
+        router.refresh();
+      } else {
+        toast.error("Помилка видалення: " + data.error);
+        setTagModal(prev => ({ ...prev, isSaving: false }));
+      }
+    } catch (err: any) {
+      toast.error("Сталася помилка: " + err.message);
+      setTagModal(prev => ({ ...prev, isSaving: false }));
     }
   };
 
@@ -230,31 +316,6 @@ export default function AccountsClient({
       toast.error("Сталася помилка: " + err.message);
     } finally {
       setIsGeneratingExportKey(false);
-    }
-  };
-
-  const handleEditClientTag = async (adAccountId: string, currentTag?: string | null) => {
-    const newTag = await prompt("Введіть персональний CRM Тег для цього рекламного кабінету (наприклад: PROFFIT #1 або DUBAI):\nЗалиште порожнім, щоб спадкувати тег профілю.", {
-      title: "Персональний CRM Тег кабінету",
-      defaultValue: currentTag || ""
-    });
-    if (newTag === null) return;
-
-    try {
-      const res = await fetch("/api/accounts/update-tag", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ adAccountId, clientTag: newTag.trim() })
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success("Тег кабінету успішно оновлено!");
-        router.refresh();
-      } else {
-        toast.error("Помилка збереження: " + data.error);
-      }
-    } catch (err: any) {
-      toast.error("Сталася помилка: " + err.message);
     }
   };
 
@@ -436,9 +497,9 @@ export default function AccountsClient({
 
       {/* Connected Accounts Table */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-          <h2 style={{ margin: 0 }}>Підключені профілі</h2>
-          <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+          <h2 style={{ margin: 0, fontSize: "16px" }}>Підключені профілі</h2>
+          <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
             Всього профілів: {socialAccounts.length}
           </span>
         </div>
@@ -449,15 +510,16 @@ export default function AccountsClient({
           </div>
         ) : (
           <div className="table-container">
-            <table className="custom-table">
+            <table className="custom-table table-compact">
               <thead>
                 <tr>
-                  <th>Ім'я клієнта / Профілю</th>
+                  <th style={{ minWidth: "220px" }}>Ім'я профілю</th>
+                  <th style={{ minWidth: "150px" }}>Тег проєкту (CRM)</th>
                   <th>Рекламні кабінети</th>
                   <th>Бізнес-сторінки</th>
-                  <th>Загальні витрати</th>
-                  <th>Токен</th>
-                  <th>Дії</th>
+                  <th>Витрати</th>
+                  <th>Статус</th>
+                  <th style={{ textAlign: "right" }}>Дії</th>
                 </tr>
               </thead>
               <tbody>
@@ -469,33 +531,36 @@ export default function AccountsClient({
                   return (
                     <Fragment key={acc.id}>
                       <tr>
+                        {/* Profile Info */}
                         <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                             {acc.avatarUrl ? (
                               <img
                                 src={acc.avatarUrl}
                                 alt={acc.name}
-                                style={{ width: "36px", height: "36px", borderRadius: "50%", border: "1px solid var(--border-color)" }}
+                                style={{ width: "34px", height: "34px", borderRadius: "50%", border: "1px solid var(--border-color)", flexShrink: 0 }}
                               />
                             ) : (
                               <div style={{
-                                width: "36px",
-                                height: "36px",
+                                width: "34px",
+                                height: "34px",
                                 borderRadius: "50%",
                                 backgroundColor: "var(--border-color-glow)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 fontWeight: "600",
-                                color: "var(--color-accent)"
+                                color: "var(--color-accent)",
+                                flexShrink: 0
                               }}>
                                 {acc.name.charAt(0).toUpperCase()}
                               </div>
                             )}
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <div style={{ fontWeight: "600" }}>{acc.name}</div>
+                                <span style={{ fontWeight: "600", color: "var(--text-primary)" }}>{acc.name}</span>
                                 <button
+                                  type="button"
                                   onClick={() => handleRenameAccount(acc.id, acc.name)}
                                   style={{
                                     background: "none",
@@ -503,7 +568,7 @@ export default function AccountsClient({
                                     color: "var(--text-muted)",
                                     cursor: "pointer",
                                     padding: "2px",
-                                    display: "flex",
+                                    display: "inline-flex",
                                     alignItems: "center",
                                     transition: "color 0.2s"
                                   }}
@@ -511,48 +576,55 @@ export default function AccountsClient({
                                   onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
                                   title="Редагувати ім'я профілю"
                                 >
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                                     <path d="M12 20h9" />
                                     <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
                                   </svg>
                                 </button>
                               </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "4px" }}>
-                                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>ID: {acc.id}</div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditSocialTag(acc.id, acc.clientTag, acc.name)}
-                                  style={{
-                                    background: acc.clientTag ? "rgba(59, 130, 246, 0.15)" : "rgba(255, 255, 255, 0.05)",
-                                    border: acc.clientTag ? "1px solid var(--color-accent)" : "1px dashed var(--border-color)",
-                                    borderRadius: "var(--radius-sm)",
-                                    padding: "2px 8px",
-                                    fontSize: "11px",
-                                    color: acc.clientTag ? "var(--color-accent)" : "var(--text-secondary)",
-                                    cursor: "pointer",
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "4px",
-                                    transition: "all 0.2s"
-                                  }}
-                                  title="Встановити спільний Тег Клієнта/Проєкту (наприклад: DUBAI) для всіх кабінетів цього соца"
-                                >
-                                  <span>🏷️ {acc.clientTag ? `Тег: ${acc.clientTag}` : "+ Тег проєкту"}</span>
-                                </button>
+                              <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "1px" }}>
+                                ID: {acc.id}
                               </div>
                             </div>
                           </div>
                         </td>
+
+                        {/* Project Tag */}
                         <td>
-                          <div style={{ fontSize: "13px" }}>
-                            <strong>{activeCabinets}</strong> активних / {acc.adAccounts.length} всього
-                            <div style={{ marginTop: "6px" }}>
+                          {acc.clientTag ? (
+                            <button
+                              type="button"
+                              onClick={() => openTagModal("social", acc.id, acc.name, acc.clientTag)}
+                              className="tag-pill tag-pill-active"
+                              title="Натисніть для зміни або видалення тегу"
+                            >
+                              <span>🏷️ {acc.clientTag}</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openTagModal("social", acc.id, acc.name, "")}
+                              className="tag-pill tag-pill-empty"
+                              title="Призначити спільний тег проєкту для цього соца"
+                            >
+                              <span>+ Тег проєкту</span>
+                            </button>
+                          )}
+                        </td>
+
+                        {/* Ad Accounts count & toggle */}
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                            <span style={{ fontSize: "12px", whiteSpace: "nowrap" }}>
+                              <strong>{activeCabinets}</strong> / {acc.adAccounts.length} активних
+                            </span>
+                            <div>
                               <button
                                 type="button"
                                 className="btn btn-secondary"
                                 style={{
-                                  padding: "3px 10px",
-                                  fontSize: "11px",
+                                  padding: "2px 8px",
+                                  fontSize: "10px",
                                   display: "inline-flex",
                                   alignItems: "center",
                                   gap: "4px",
@@ -561,40 +633,51 @@ export default function AccountsClient({
                                 }}
                                 onClick={() => toggleExpandSocial(acc.id)}
                               >
-                                <span>{isExpanded ? "▲ Сховати кабінети" : `▼ Кабінети (${acc.adAccounts.length})`}</span>
+                                <span>{isExpanded ? "▲ Згорнути" : `▼ Кабінети (${acc.adAccounts.length})`}</span>
                               </button>
                             </div>
                           </div>
                         </td>
+
+                        {/* Pages */}
                         <td>
-                          <div style={{ fontSize: "13px" }}>
-                            <strong>{acc.pages.length}</strong> сторінок
-                            <div style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
-                              {acc.pages.slice(0, 2).map(p => p.name).join(", ")}
-                              {acc.pages.length > 2 && "..."}
-                            </div>
+                          <div style={{ fontSize: "12px" }}>
+                            <strong>{acc.pages.length}</strong> стор.
+                            {acc.pages.length > 0 && (
+                              <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px", maxWidth: "140px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {acc.pages.map(p => p.name).join(", ")}
+                              </div>
+                            )}
                           </div>
                         </td>
+
+                        {/* Spend */}
                         <td>
-                          <span style={{ fontWeight: "600" }}>${totalSpend.toFixed(2)}</span>
+                          <span style={{ fontWeight: "600", fontSize: "13px", whiteSpace: "nowrap" }}>
+                            ${totalSpend.toFixed(2)}
+                          </span>
                         </td>
+
+                        {/* Status */}
                         <td>
-                          <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`}>
+                          <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
                             {acc.status === "ACTIVE" ? "Активний" : "Неактивний"}
                           </span>
                         </td>
-                        <td>
-                          <div style={{ display: "flex", gap: "8px" }}>
+
+                        {/* Actions */}
+                        <td style={{ textAlign: "right" }}>
+                          <div style={{ display: "inline-flex", gap: "6px" }}>
                             <button
                               className="btn btn-secondary"
-                              style={{ padding: "6px 12px", fontSize: "12px" }}
+                              style={{ padding: "4px 10px", fontSize: "11px" }}
                               onClick={() => router.push(`/?socialAccount=${acc.id}`)}
                             >
                               Статистика
                             </button>
                             <button
                               className="btn btn-danger"
-                              style={{ padding: "6px 12px", fontSize: "12px" }}
+                              style={{ padding: "4px 10px", fontSize: "11px" }}
                               onClick={() => handleDisconnectAccount(acc.id, acc.name)}
                             >
                               Видалити
@@ -606,15 +689,15 @@ export default function AccountsClient({
                       {/* Expanded Ad Accounts Table Row */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} style={{ backgroundColor: "rgba(12, 16, 27, 0.95)", padding: "16px 20px" }}>
+                          <td colSpan={7} style={{ backgroundColor: "rgba(8, 11, 20, 0.95)", padding: "14px 18px" }}>
                             <div style={{
                               border: "1px solid var(--border-color)",
-                              borderRadius: "var(--radius-md)",
-                              padding: "16px",
-                              backgroundColor: "rgba(4, 6, 10, 0.6)"
+                              borderRadius: "var(--radius-sm)",
+                              padding: "14px",
+                              backgroundColor: "rgba(4, 6, 10, 0.7)"
                             }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px", flexWrap: "wrap", gap: "8px" }}>
-                                <span style={{ fontSize: "13px", fontWeight: "600", color: "var(--color-accent)" }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px", flexWrap: "wrap", gap: "8px" }}>
+                                <span style={{ fontSize: "12px", fontWeight: "600", color: "var(--color-accent)" }}>
                                   Рекламні кабінети профілю "{acc.name}" ({acc.adAccounts.length})
                                 </span>
                                 <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
@@ -623,19 +706,19 @@ export default function AccountsClient({
                               </div>
 
                               {acc.adAccounts.length === 0 ? (
-                                <div style={{ fontSize: "13px", color: "var(--text-muted)", padding: "12px 0", textAlign: "center" }}>
+                                <div style={{ fontSize: "12px", color: "var(--text-muted)", padding: "10px 0", textAlign: "center" }}>
                                   У цього профілю наразі немає доступних рекламних кабінетів у Meta.
                                 </div>
                               ) : (
-                                <table className="custom-table" style={{ fontSize: "12px", margin: 0 }}>
+                                <table className="custom-table table-compact" style={{ fontSize: "12px", margin: 0 }}>
                                   <thead>
                                     <tr style={{ backgroundColor: "rgba(255,255,255,0.02)" }}>
                                       <th>Кабінет (Назва та ID)</th>
-                                      <th>CRM Тег клієнта</th>
+                                      <th>Тег проєкту (CRM)</th>
                                       <th>Валюта</th>
                                       <th>Витрати</th>
                                       <th>Статус</th>
-                                      <th>Дії</th>
+                                      <th style={{ textAlign: "right" }}>Дії</th>
                                     </tr>
                                   </thead>
                                   <tbody>
@@ -649,27 +732,35 @@ export default function AccountsClient({
                                         </td>
                                         <td>
                                           {ad.clientTag ? (
-                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                              <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px" }}>
-                                                {ad.clientTag}
-                                              </span>
-                                              <span style={{ fontSize: "10px", color: "var(--color-emerald)", fontWeight: "500" }} title="Кастомний персональний тег для цього кабінету">
-                                                (персональний)
-                                              </span>
-                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => openTagModal("adAccount", ad.id, ad.name, ad.clientTag)}
+                                              className="tag-pill tag-pill-active"
+                                              title="Персональний тег для цього кабінету (натисніть щоб змінити)"
+                                            >
+                                              <span>🏷️ {ad.clientTag}</span>
+                                              <span style={{ fontSize: "9px", color: "var(--color-emerald)", marginLeft: "2px" }}>(персональний)</span>
+                                            </button>
                                           ) : acc.clientTag ? (
-                                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                              <span className="badge badge-info" style={{ fontSize: "11px", padding: "2px 8px", opacity: 0.85 }}>
-                                                {acc.clientTag}
-                                              </span>
-                                              <span style={{ fontSize: "10px", color: "var(--text-muted)" }} title="Автоматично спадкується від тегу соц-профілю">
-                                                (з профілю)
-                                              </span>
-                                            </div>
+                                            <button
+                                              type="button"
+                                              onClick={() => openTagModal("adAccount", ad.id, ad.name, "")}
+                                              className="tag-pill tag-pill-active"
+                                              style={{ opacity: 0.85 }}
+                                              title="Успадковано від профілю соца (натисніть щоб перевизначити)"
+                                            >
+                                              <span>🏷️ {acc.clientTag}</span>
+                                              <span style={{ fontSize: "9px", color: "var(--text-muted)", marginLeft: "2px" }}>(з профілю)</span>
+                                            </button>
                                           ) : (
-                                            <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                                              За замовчуванням ({acc.name})
-                                            </span>
+                                            <button
+                                              type="button"
+                                              onClick={() => openTagModal("adAccount", ad.id, ad.name, "")}
+                                              className="tag-pill tag-pill-empty"
+                                              title="Призначити персональний тег"
+                                            >
+                                              <span>+ Задати тег</span>
+                                            </button>
                                           )}
                                         </td>
                                         <td>
@@ -683,25 +774,25 @@ export default function AccountsClient({
                                             {ad.status === "ACTIVE" ? "Активний" : "Деактивовано"}
                                           </span>
                                         </td>
-                                        <td>
-                                          <div style={{ display: "flex", gap: "6px" }}>
+                                        <td style={{ textAlign: "right" }}>
+                                          <div style={{ display: "inline-flex", gap: "6px" }}>
                                             <button
                                               type="button"
                                               className="btn btn-secondary"
-                                              style={{ padding: "4px 8px", fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" }}
+                                              style={{ padding: "3px 8px", fontSize: "11px" }}
                                               onClick={() => handleOpenReassignModal(ad, acc)}
-                                              title="Перенести цей кабінет до іншого профілю або змінити прив'язку"
+                                              title="Перенести цей кабінет до іншого профілю"
                                             >
-                                              <span>➡️ Перенести</span>
+                                              ➡️ Перенести
                                             </button>
                                             <button
                                               type="button"
                                               className="btn btn-secondary"
-                                              style={{ padding: "4px 8px", fontSize: "11px" }}
-                                              onClick={() => handleEditClientTag(ad.id, ad.clientTag)}
+                                              style={{ padding: "3px 8px", fontSize: "11px" }}
+                                              onClick={() => openTagModal("adAccount", ad.id, ad.name, ad.clientTag)}
                                               title="Вказати персональний CRM тег для цього кабінету"
                                             >
-                                              🏷️ CRM Тег
+                                              🏷️ Тег
                                             </button>
                                           </div>
                                         </td>
@@ -722,6 +813,139 @@ export default function AccountsClient({
           </div>
         )}
       </div>
+
+      {/* Modern Tag Picker Modal with Dropdown / Existing Tag Chips */}
+      {tagModal.isOpen && (
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: "460px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ fontSize: "16px", margin: 0 }}>Тег проєкту (CRM)</h2>
+              <button
+                type="button"
+                style={{ cursor: "pointer", fontSize: "20px", color: "var(--text-muted)" }}
+                onClick={() => setTagModal(prev => ({ ...prev, isOpen: false }))}
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTag} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div style={{
+                padding: "10px 12px",
+                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius-sm)"
+              }}>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.5px" }}>
+                  {tagModal.targetType === "social" ? "Профіль Facebook" : "Рекламний кабінет"}
+                </div>
+                <div style={{ fontWeight: "600", fontSize: "13px", marginTop: "2px", color: "var(--text-primary)" }}>
+                  {tagModal.targetName}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
+                  ID: {tagModal.targetId}
+                </div>
+              </div>
+
+              {/* Dropdown & Quick Select from Existing Tags */}
+              {existingTags.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Виберіть зі списку існуючих тегів:</label>
+                  <select
+                    className="form-input"
+                    value={existingTags.includes(tagModal.inputTag.trim()) ? tagModal.inputTag.trim() : ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setTagModal(prev => ({ ...prev, inputTag: e.target.value }));
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <option value="">-- Оберіть тег зі списку --</option>
+                    {existingTags.map(t => (
+                      <option key={t} value={t}>🏷️ {t}</option>
+                    ))}
+                  </select>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                    {existingTags.map(t => {
+                      const isSelected = tagModal.inputTag.trim().toLowerCase() === t.toLowerCase();
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`tag-chip ${isSelected ? "active" : ""}`}
+                          onClick={() => setTagModal(prev => ({ ...prev, inputTag: t }))}
+                        >
+                          <span>🏷️ {t}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Input for tag name */}
+              <div className="form-group">
+                <label className="form-label">
+                  {existingTags.length > 0 ? "Або введіть новий тег вручну:" : "Введіть назву тегу проєкту:"}
+                </label>
+                <input
+                  type="text"
+                  list="existing-tags-datalist"
+                  className="form-input"
+                  placeholder="Наприклад: DUBAI"
+                  value={tagModal.inputTag}
+                  onChange={(e) => setTagModal(prev => ({ ...prev, inputTag: e.target.value }))}
+                  autoFocus
+                />
+                <datalist id="existing-tags-datalist">
+                  {existingTags.map(t => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  {tagModal.targetType === "social"
+                    ? "Усі рекламні кабінети цього профілю автоматично об'єднаються під цим тегом"
+                    : "Цей тег матиме пріоритет над спільним тегом профілю"}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px" }}>
+                {tagModal.currentTag ? (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ padding: "6px 12px", fontSize: "11px" }}
+                    onClick={handleClearTag}
+                    disabled={tagModal.isSaving}
+                  >
+                    🗑️ Видалити тег
+                  </button>
+                ) : <div />}
+
+                <div style={{ display: "flex", gap: "10px" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setTagModal(prev => ({ ...prev, isOpen: false }))}
+                    disabled={tagModal.isSaving}
+                  >
+                    Скасувати
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={tagModal.isSaving}
+                  >
+                    {tagModal.isSaving ? "Збереження..." : "Зберегти тег"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Collapsible Export REST API Key Card */}
       <div className="card">
@@ -839,7 +1063,7 @@ export default function AccountsClient({
           </div>
         ) : (
           <div className="table-container">
-            <table className="custom-table">
+            <table className="custom-table table-compact">
               <thead>
                 <tr>
                   <th>Опис</th>
@@ -873,7 +1097,7 @@ export default function AccountsClient({
                       <td>
                         <button
                           className="btn btn-secondary"
-                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          style={{ padding: "4px 10px", fontSize: "11px" }}
                           onClick={() => copyToClipboard(inviteUrlString)}
                         >
                           Копіювати посилання
@@ -882,7 +1106,7 @@ export default function AccountsClient({
                       <td>
                         <button
                           className="btn btn-danger"
-                          style={{ padding: "6px 12px", fontSize: "12px" }}
+                          style={{ padding: "4px 10px", fontSize: "11px" }}
                           onClick={() => handleDeleteInvite(link.id, link.description || "")}
                         >
                           Видалити
@@ -900,11 +1124,12 @@ export default function AccountsClient({
       {/* Reassign Ad Account Modal */}
       {reassignModal.isOpen && reassignModal.adAccount && (
         <div className="modal-overlay">
-          <div className="modal-content">
+          <div className="modal-content" style={{ maxWidth: "460px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2>Перенесення кабінету</h2>
+              <h2 style={{ fontSize: "16px", margin: 0 }}>Перенесення кабінету</h2>
               <button
-                style={{ cursor: "pointer", fontSize: "20px" }}
+                type="button"
+                style={{ cursor: "pointer", fontSize: "20px", color: "var(--text-muted)" }}
                 onClick={() => setReassignModal(prev => ({ ...prev, isOpen: false }))}
               >
                 ×
@@ -912,23 +1137,18 @@ export default function AccountsClient({
             </div>
 
             <form onSubmit={handleSaveReassign} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div>
-                <p style={{ fontSize: "14px", color: "var(--text-secondary)", marginBottom: "8px" }}>
-                  Перепризначення рекламного кабінету та всієї його аналітики іншому клієнту:
-                </p>
-                <div style={{
-                  padding: "12px 14px",
-                  backgroundColor: "rgba(255, 255, 255, 0.03)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "var(--radius-sm)"
-                }}>
-                  <div style={{ fontWeight: "600", fontSize: "14px" }}>{reassignModal.adAccount.name}</div>
-                  <div style={{ fontSize: "12px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
-                    ID: <code>{reassignModal.adAccount.id}</code>
-                  </div>
-                  <div style={{ fontSize: "12px", color: "var(--color-accent)", marginTop: "4px" }}>
-                    Поточний клієнт: <strong>{reassignModal.currentSocialName}</strong>
-                  </div>
+              <div style={{
+                padding: "10px 12px",
+                backgroundColor: "rgba(255, 255, 255, 0.03)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius-sm)"
+              }}>
+                <div style={{ fontWeight: "600", fontSize: "13px" }}>{reassignModal.adAccount.name}</div>
+                <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "2px" }}>
+                  ID: <code>{reassignModal.adAccount.id}</code>
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--color-accent)", marginTop: "4px" }}>
+                  Поточний клієнт: <strong>{reassignModal.currentSocialName}</strong>
                 </div>
               </div>
 
@@ -948,21 +1168,67 @@ export default function AccountsClient({
                 </select>
               </div>
 
+              {/* Dropdown & Quick Select from Existing Tags */}
+              {existingTags.length > 0 && (
+                <div className="form-group">
+                  <label className="form-label">Оберіть тег з існуючих (необов'язково):</label>
+                  <select
+                    className="form-input"
+                    value={existingTags.includes(reassignModal.clientTag.trim()) ? reassignModal.clientTag.trim() : ""}
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setReassignModal(prev => ({ ...prev, clientTag: e.target.value }));
+                      }
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <option value="">-- Оберіть існуючий тег --</option>
+                    {existingTags.map(t => (
+                      <option key={t} value={t}>🏷️ {t}</option>
+                    ))}
+                  </select>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                    {existingTags.map(t => {
+                      const isSelected = reassignModal.clientTag.trim().toLowerCase() === t.toLowerCase();
+                      return (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`tag-chip ${isSelected ? "active" : ""}`}
+                          onClick={() => setReassignModal(prev => ({ ...prev, clientTag: t }))}
+                        >
+                          <span>🏷️ {t}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="form-group">
-                <label className="form-label">Персональний CRM Тег кабінету (необов'язково):</label>
+                <label className="form-label">
+                  {existingTags.length > 0 ? "Або введіть персональний тег вручну:" : "Персональний CRM Тег кабінету (необов'язково):"}
+                </label>
                 <input
                   type="text"
+                  list="reassign-tags-datalist"
                   className="form-input"
                   placeholder="Залиште порожнім, щоб спадкувати тег профілю"
                   value={reassignModal.clientTag}
                   onChange={(e) => setReassignModal(prev => ({ ...prev, clientTag: e.target.value }))}
                 />
+                <datalist id="reassign-tags-datalist">
+                  {existingTags.map(t => (
+                    <option key={t} value={t} />
+                  ))}
+                </datalist>
                 <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                   Якщо вказано, перевизначає спільний тег профілю у вивантаженні API експорту на VPS
                 </span>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "12px", marginTop: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "12px" }}>
                 <button
                   type="button"
                   className="btn btn-secondary"
