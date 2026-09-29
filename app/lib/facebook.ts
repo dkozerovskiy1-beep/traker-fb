@@ -34,6 +34,7 @@ export interface FbCampaignInsight {
   adsetName?: string;
   adId?: string;
   adName?: string;
+  country: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -232,7 +233,42 @@ export async function moderateFacebookComment(
 }
 
 /**
- * Fetches daily advertising insights (spend, clicks, leads) for a specific Ad Account.
+ * Helper to normalize country code or extract from adset/campaign names if not detected.
+ */
+export function extractCountryCode(
+  rawCountry?: string | null,
+  adsetName?: string | null,
+  campaignName?: string | null
+): string {
+  if (rawCountry && rawCountry.trim() && rawCountry.toUpperCase() !== "UNKNOWN" && rawCountry.toUpperCase() !== "ALL") {
+    return rawCountry.trim().toUpperCase();
+  }
+
+  // Look for 2-letter ISO country codes in adsetName or campaignName (e.g. "[DE]", "de -", "DE_", "kz-", etc.)
+  const namesToCheck = [adsetName, campaignName].filter(Boolean) as string[];
+  for (const name of namesToCheck) {
+    // 1. Bracketed codes e.g. [DE], (KZ), [PL]
+    const bracketMatch = name.match(/[\[\(]([a-zA-Z]{2})[\]\)]/);
+    if (bracketMatch && bracketMatch[1]) {
+      return bracketMatch[1].toUpperCase();
+    }
+    // 2. Prefix codes e.g. "de -", "KZ -", "pl_", "DE/", "kz:"
+    const prefixMatch = name.match(/^([a-zA-Z]{2})[\s_\-\/:]/);
+    if (prefixMatch && prefixMatch[1]) {
+      return prefixMatch[1].toUpperCase();
+    }
+    // 3. Separator codes e.g. "- de -", "_kz_", "- pl"
+    const sepMatch = name.match(/[\s_\-\/]([a-zA-Z]{2})[\s_\-\/]/);
+    if (sepMatch && sepMatch[1]) {
+      return sepMatch[1].toUpperCase();
+    }
+  }
+
+  return "ALL";
+}
+
+/**
+ * Fetches daily advertising insights (spend, clicks, leads) for a specific Ad Account with Country Breakdown.
  * Supports date range query and handles pagination across all pages.
  */
 export async function getAdAccountInsights(
@@ -245,23 +281,53 @@ export async function getAdAccountInsights(
   
   // Fields to pull details at ad level: campaign, adset, ad, spend, impressions, clicks, unique_clicks, actions
   const fields = "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,spend,impressions,clicks,unique_clicks,actions";
-  let url: string | null = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
+  let url: string | null = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&breakdowns=country&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
 
   const allRawInsights: any[] = [];
+  let isBreakdownQuery = true;
 
-  while (url) {
-    const res: Response = await fetch(url);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(`Failed to fetch insights for ${adAccountId}: ${err.error?.message || res.statusText}`);
+  try {
+    while (url) {
+      const res: Response = await fetch(url);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        // If breakdowns query fails for any reason, fallback seamlessly to standard query
+        if (isBreakdownQuery && (res.status === 400 || err.error?.code === 100)) {
+          console.warn(`Breakdowns=country query unsupported for ${adAccountId}, falling back to standard insight query:`, err.error?.message);
+          isBreakdownQuery = false;
+          url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
+          allRawInsights.length = 0;
+          continue;
+        }
+        throw new Error(`Failed to fetch insights for ${adAccountId}: ${err.error?.message || res.statusText}`);
+      }
+
+      const responseData: any = await res.json();
+      const rawInsights = responseData.data || [];
+      allRawInsights.push(...rawInsights);
+
+      // Follow paging.next if available
+      url = responseData.paging?.next || null;
     }
-
-    const responseData: any = await res.json();
-    const rawInsights = responseData.data || [];
-    allRawInsights.push(...rawInsights);
-
-    // Follow paging.next if available
-    url = responseData.paging?.next || null;
+  } catch (error: any) {
+    if (isBreakdownQuery && allRawInsights.length === 0) {
+      // Retry once without breakdown if an unexpected error occurred
+      try {
+        let fallbackUrl: string | null = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/insights?level=ad&fields=${fields}&time_increment=1&time_range=${encodeURIComponent(timeRange)}&limit=1000&access_token=${accessToken}`;
+        while (fallbackUrl) {
+          const res: Response = await fetch(fallbackUrl);
+          if (!res.ok) break;
+          const data: any = await res.json();
+          allRawInsights.push(...(data.data || []));
+          fallbackUrl = data.paging?.next || null;
+        }
+      } catch (fallbackErr) {
+        console.error("Fallback insight query also failed:", fallbackErr);
+        throw error;
+      }
+    } else {
+      throw error;
+    }
   }
 
   return allRawInsights.map((insight: any) => {
@@ -282,6 +348,8 @@ export async function getAdAccountInsights(
       }
     }
 
+    const country = extractCountryCode(insight.country, insight.adset_name, insight.campaign_name);
+
     return {
       date: insight.date_start, // Format: YYYY-MM-DD
       campaignId: insight.campaign_id,
@@ -290,6 +358,7 @@ export async function getAdAccountInsights(
       adsetName: insight.adset_name,
       adId: insight.ad_id,
       adName: insight.ad_name,
+      country,
       spend: roundCurrency(parseFloat(insight.spend || "0")),
       impressions: parseInt(insight.impressions || "0", 10),
       clicks: parseInt(insight.clicks || "0", 10),
@@ -326,11 +395,12 @@ export interface FbAdSetData {
   status: string;
   effective_status: string;
   campaign_id: string;
+  targetCountry?: string | null;
 }
 
 export async function getAdAccountAdSets(adAccountId: string, accessToken: string): Promise<FbAdSetData[]> {
   const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "PENDING_REVIEW", "DISAPPROVED", "IN_PROCESS", "WITH_ERRORS", "CAMPAIGN_PAUSED", "ADSET_PAUSED"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/adsets?fields=id,name,status,effective_status,campaign{id}&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/adsets?fields=id,name,status,effective_status,campaign{id},targeting&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -338,13 +408,21 @@ export async function getAdAccountAdSets(adAccountId: string, accessToken: strin
     return [];
   }
   const data = await res.json();
-  return (data.data || []).map((adset: any) => ({
-    id: adset.id,
-    name: adset.name,
-    status: adset.status,
-    effective_status: adset.effective_status,
-    campaign_id: adset.campaign?.id
-  }));
+  return (data.data || []).map((adset: any) => {
+    let targetCountry: string | null = null;
+    const countries = adset.targeting?.geo_locations?.countries;
+    if (Array.isArray(countries) && countries.length === 1 && typeof countries[0] === "string") {
+      targetCountry = countries[0].toUpperCase();
+    }
+    return {
+      id: adset.id,
+      name: adset.name,
+      status: adset.status,
+      effective_status: adset.effective_status,
+      campaign_id: adset.campaign?.id,
+      targetCountry
+    };
+  });
 }
 
 export interface FbAdData {

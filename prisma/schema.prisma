@@ -97,6 +97,7 @@ model DailyInsight {
   adsetName    String?
   adId         String?
   adName       String?
+  country      String      @default("ALL")
   spend        Float       @default(0)
   impressions  Int         @default(0)
   clicks       Int         @default(0)
@@ -108,7 +109,7 @@ model DailyInsight {
   cpm          Float       @default(0)
   updatedAt    DateTime    @updatedAt
 
-  @@unique([date, adAccountId, campaignId, adsetId, adId])
+  @@unique([date, adAccountId, campaignId, adsetId, adId, country])
 }
 
 model ModerationRule {

@@ -48,6 +48,7 @@ interface InsightItem {
   campaignId: string;
   adsetId: string;
   adId: string;
+  country?: string;
   spend: number;
   impressions: number;
   clicks: number;
@@ -82,6 +83,17 @@ interface AnalyticsClientProps {
   period: string;
   startDate: string;
   endDate: string;
+}
+
+export function getCountryFlag(countryCode?: string | null): string {
+  if (!countryCode || countryCode === "ALL" || countryCode === "UNKNOWN") return "🌐";
+  const code = countryCode.toUpperCase();
+  if (code.length !== 2) return "📍";
+  try {
+    return String.fromCodePoint(...[...code].map(c => 127397 + c.charCodeAt(0)));
+  } catch {
+    return "📍";
+  }
 }
 
 // Status badge component
@@ -169,7 +181,7 @@ export default function AnalyticsClient({
   };
 
   // Navigation state: drill-down level
-  type DrillLevel = "campaigns" | "adsets" | "ads";
+  type DrillLevel = "campaigns" | "adsets" | "ads" | "geo";
   const [drillLevel, setDrillLevel] = useState<DrillLevel>("campaigns");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   const [selectedAdSetId, setSelectedAdSetId] = useState<string | null>(null);
@@ -419,6 +431,23 @@ export default function AnalyticsClient({
     setSelectedAdSetId(null);
   };
 
+  const navigateToGeo = () => {
+    setDrillLevel("geo");
+    setSelectedCampaignId(null);
+    setSelectedAdSetId(null);
+  };
+
+  // Helper to extract unique countries for any target
+  const getCountriesForTarget = (insights: InsightItem[]) => {
+    const codes = new Set<string>();
+    for (const i of insights) {
+      if (i.country && i.country !== "ALL" && i.country !== "UNKNOWN") {
+        codes.add(i.country.toUpperCase());
+      }
+    }
+    return Array.from(codes);
+  };
+
   // Generic sort list helper
   const sortList = <T extends { name: string; status: string; spend: number; impressions: number; clicks: number; ctr: number; cpc: number; cpm: number; leads: number; cpl: number }>(list: T[]): T[] => {
     return [...list].sort((a, b) => {
@@ -442,22 +471,28 @@ export default function AnalyticsClient({
   // Build data for current level with metrics for sorting
   const currentCampaigns = campaignsList;
   const campaignsWithMetrics = currentCampaigns.map(campaign => {
+    const targetInsights = dbInsights.filter(i => i.campaignId === campaign.id);
     const metrics = getSummedMetrics(i => i.campaignId === campaign.id);
+    const countries = getCountriesForTarget(targetInsights);
     return {
       item: campaign,
       name: campaign.name,
       status: campaign.effectiveStatus,
+      countries,
       ...metrics
     };
   });
 
   const currentAdSets = selectedCampaign ? selectedCampaign.adsets : [];
   const adsetsWithMetrics = currentAdSets.map(adset => {
+    const targetInsights = dbInsights.filter(i => i.adsetId === adset.id);
     const metrics = getSummedMetrics(i => i.adsetId === adset.id);
+    const countries = getCountriesForTarget(targetInsights);
     return {
       item: adset,
       name: adset.name,
       status: adset.effectiveStatus,
+      countries,
       ...metrics
     };
   });
@@ -470,13 +505,69 @@ export default function AnalyticsClient({
         : []);
 
   const adsWithMetrics = rawAdsList.map(({ ad, adset }) => {
+    const targetInsights = dbInsights.filter(i => i.adId === ad.id);
     const metrics = getSummedMetrics(i => i.adId === ad.id);
+    const countries = getCountriesForTarget(targetInsights);
     return {
       item: ad,
       adset: adset,
       name: ad.name,
       status: ad.effectiveStatus,
+      countries,
       ...metrics
+    };
+  });
+
+  // Build data for GEO level
+  const geoMap = new Map<string, {
+    country: string;
+    flag: string;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    leads: number;
+    conversions: number;
+  }>();
+
+  for (const item of dbInsights) {
+    const rawCountry = (item.country || "").trim();
+    const code = rawCountry && rawCountry !== "ALL" && rawCountry !== "UNKNOWN"
+      ? rawCountry.toUpperCase()
+      : "ALL";
+    const flag = getCountryFlag(code);
+
+    let g = geoMap.get(code);
+    if (!g) {
+      g = { country: code, flag, spend: 0, impressions: 0, clicks: 0, leads: 0, conversions: 0 };
+      geoMap.set(code, g);
+    }
+    g.spend += item.spend;
+    g.impressions += item.impressions;
+    g.clicks += item.clicks;
+    g.leads += item.leads;
+    g.conversions += item.conversions;
+  }
+
+  const geoWithMetrics = Array.from(geoMap.values()).map(g => {
+    const spend = roundCurrency(g.spend);
+    const ctr = g.impressions > 0 ? (g.clicks / g.impressions) * 100 : 0;
+    const cpc = g.clicks > 0 ? spend / g.clicks : 0;
+    const cpm = g.impressions > 0 ? (spend / g.impressions) * 1000 : 0;
+    const cpl = g.leads > 0 ? spend / g.leads : 0;
+
+    return {
+      item: g,
+      name: g.country === "ALL" ? "🌐 Загальні / Інші" : `${g.flag} ${g.country}`,
+      status: "ACTIVE",
+      countries: [g.country],
+      spend,
+      impressions: g.impressions,
+      clicks: g.clicks,
+      ctr,
+      cpc,
+      cpm,
+      leads: g.leads,
+      cpl
     };
   });
 
@@ -999,10 +1090,12 @@ export default function AnalyticsClient({
               {[
                 { level: "campaigns" as DrillLevel, label: "Кампанії", count: currentCampaigns.length },
                 { level: "adsets" as DrillLevel, label: "Групи оголошень", count: currentAdSets.length },
-                { level: "ads" as DrillLevel, label: "Оголошення", count: adsWithMetrics.length }
+                { level: "ads" as DrillLevel, label: "Оголошення", count: adsWithMetrics.length },
+                { level: "geo" as DrillLevel, label: "Країни / ГЕО", count: geoWithMetrics.length }
               ].map(tab => {
                 const isActive = drillLevel === tab.level;
                 const isClickable = (tab.level === "campaigns")
+                  || (tab.level === "geo")
                   || (tab.level === "adsets" && selectedCampaignId)
                   || (tab.level === "ads" && selectedCampaignId);
                 return (
@@ -1012,6 +1105,7 @@ export default function AnalyticsClient({
                     disabled={!isClickable}
                     onClick={() => {
                       if (tab.level === "campaigns") navigateToCampaigns();
+                      else if (tab.level === "geo") navigateToGeo();
                       else if (tab.level === "adsets" && selectedCampaignId) navigateToAdSets();
                       else if (tab.level === "ads" && selectedCampaignId) {
                         setDrillLevel("ads");
@@ -1076,14 +1170,27 @@ export default function AnalyticsClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {sortList(campaignsWithMetrics).map(({ item: campaign, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                      {sortList(campaignsWithMetrics).map(({ item: campaign, countries, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
                         const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         return (
                           <tr key={campaign.id} style={{ cursor: "pointer" }} onClick={() => handleCampaignClick(campaign.id)}>
                             <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                 <span style={{ color: "var(--text-muted)", fontSize: "16px" }}>▶</span>
                                 <strong style={{ color: "white", fontSize: "13px" }}>{campaign.name}</strong>
+                                {countries && countries.map(c => (
+                                  <span key={c} style={{
+                                    backgroundColor: "rgba(59, 130, 246, 0.12)",
+                                    color: "#60a5fa",
+                                    border: "1px solid rgba(59, 130, 246, 0.25)",
+                                    borderRadius: "4px",
+                                    padding: "1px 6px",
+                                    fontSize: "10px",
+                                    fontWeight: "600"
+                                  }}>
+                                    {getCountryFlag(c)} {c}
+                                  </span>
+                                ))}
                               </div>
                             </td>
                             <td><StatusBadge status={campaign.effectiveStatus} /></td>
@@ -1121,14 +1228,27 @@ export default function AnalyticsClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {sortList(adsetsWithMetrics).map(({ item: adset, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                      {sortList(adsetsWithMetrics).map(({ item: adset, countries, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
                         const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         return (
                           <tr key={adset.id} style={{ cursor: "pointer" }} onClick={() => handleAdSetClick(adset.id)}>
                             <td>
-                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                                 <span style={{ color: "var(--text-muted)", fontSize: "16px" }}>▶</span>
                                 <strong style={{ color: "white", fontSize: "13px" }}>{adset.name}</strong>
+                                {countries && countries.map(c => (
+                                  <span key={c} style={{
+                                    backgroundColor: "rgba(59, 130, 246, 0.12)",
+                                    color: "#60a5fa",
+                                    border: "1px solid rgba(59, 130, 246, 0.25)",
+                                    borderRadius: "4px",
+                                    padding: "1px 6px",
+                                    fontSize: "10px",
+                                    fontWeight: "600"
+                                  }}>
+                                    {getCountryFlag(c)} {c}
+                                  </span>
+                                ))}
                               </div>
                             </td>
                             <td><StatusBadge status={adset.effectiveStatus} /></td>
@@ -1166,14 +1286,29 @@ export default function AnalyticsClient({
                       </tr>
                     </thead>
                     <tbody>
-                      {sortList(adsWithMetrics).map(({ item: ad, adset, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                      {sortList(adsWithMetrics).map(({ item: ad, adset, countries, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
                         const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
                         const isRejected = ad.effectiveStatus === "DISAPPROVED";
                         return (
                           <tr key={ad.id}>
                             <td>
                               <div>
-                                <strong style={{ color: "white", fontSize: "13px" }}>{ad.name}</strong>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                  <strong style={{ color: "white", fontSize: "13px" }}>{ad.name}</strong>
+                                  {countries && countries.map(c => (
+                                    <span key={c} style={{
+                                      backgroundColor: "rgba(59, 130, 246, 0.12)",
+                                      color: "#60a5fa",
+                                      border: "1px solid rgba(59, 130, 246, 0.25)",
+                                      borderRadius: "4px",
+                                      padding: "1px 6px",
+                                      fontSize: "10px",
+                                      fontWeight: "600"
+                                    }}>
+                                      {getCountryFlag(c)} {c}
+                                    </span>
+                                  ))}
+                                </div>
                                 {!selectedAdSetId && adset && (
                                   <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
                                     Група: {adset.name}
@@ -1195,6 +1330,56 @@ export default function AnalyticsClient({
                               </div>
                             </td>
                             <td><StatusBadge status={ad.effectiveStatus} /></td>
+                            <MetricCells m={m} />
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            )}
+
+            {/* TABLE: GEO LEVEL */}
+            {drillLevel === "geo" && (
+              geoWithMetrics.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "40px", color: "var(--text-muted)", fontSize: "14px" }}>
+                  Немає зафіксованих витрат за країнами у вибраний період.
+                </div>
+              ) : (
+                <div className="table-container">
+                  <table className="custom-table">
+                    <thead>
+                      <tr>
+                        <SortableTH field="name" label="Країна / ГЕО" width="30%" />
+                        <SortableTH field="status" label="Статус" width="10%" />
+                        <SortableTH field="spend" label="Витрати" />
+                        <SortableTH field="impressions" label="Покази" />
+                        <SortableTH field="clicks" label="Кліки" />
+                        <SortableTH field="ctr" label="CTR" />
+                        <SortableTH field="cpc" label="CPC" />
+                        <SortableTH field="cpm" label="CPM" />
+                        <SortableTH field="leads" label="Ліди" />
+                        <SortableTH field="cpl" label="CPL" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortList(geoWithMetrics).map(({ item: geo, name, spend, impressions, clicks, ctr, cpc, cpm, leads, cpl }) => {
+                        const m = { spend, impressions, clicks, ctr, cpc, cpm, leads, cpl };
+                        return (
+                          <tr key={geo.country}>
+                            <td>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                <span style={{ fontSize: "20px" }}>{geo.flag}</span>
+                                <div>
+                                  <strong style={{ color: "white", fontSize: "13px" }}>{name}</strong>
+                                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                    Код ГЕО: <span style={{ color: "var(--color-accent)", fontWeight: "600" }}>{geo.country}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </td>
+                            <td><StatusBadge status="ACTIVE" /></td>
                             <MetricCells m={m} />
                           </tr>
                         );

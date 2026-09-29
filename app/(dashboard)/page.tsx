@@ -218,9 +218,9 @@ export default async function HomePage({ searchParams }: PageProps) {
     ];
 
     rawInsights = [
-      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_1", spend: 30.00, impressions: 1800, clicks: 70, uniqueClicks: 65, leads: 6, conversions: 2 },
-      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_2", spend: 10.93, impressions: 502, clicks: 22, uniqueClicks: 20, leads: 2, conversions: 0 },
-      { date: startDate, adAccountId: "act_4492817290192837", campaignId: "120249622524930412", adsetId: "adset_2", adId: "ad_3", spend: 25.10, impressions: 1540, clicks: 45, uniqueClicks: 40, leads: 4, conversions: 1 }
+      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_1", country: "UA", spend: 30.00, impressions: 1800, clicks: 70, uniqueClicks: 65, leads: 6, conversions: 2 },
+      { date: startDate, adAccountId: "act_3359672500881835", campaignId: "120249657781210412", adsetId: "adset_1", adId: "ad_2", country: "UA", spend: 10.93, impressions: 502, clicks: 22, uniqueClicks: 20, leads: 2, conversions: 0 },
+      { date: startDate, adAccountId: "act_4492817290192837", campaignId: "120249622524930412", adsetId: "adset_2", adId: "ad_3", country: "UA", spend: 25.10, impressions: 1540, clicks: 45, uniqueClicks: 40, leads: 4, conversions: 1 }
     ];
 
     totals = {

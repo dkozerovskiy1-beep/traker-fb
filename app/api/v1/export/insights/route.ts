@@ -103,9 +103,11 @@ export async function GET(req: Request) {
       }
     });
 
-    // 5. Aggregate insights by clientTag
+    // 5. Aggregate insights by clientTag and country
     interface ClientAggregate {
       client_id: string;
+      client_tag: string;
+      country: string | null;
       currency: string;
       spend: number;
       impressions: number;
@@ -118,48 +120,34 @@ export async function GET(req: Request) {
 
     const clientAggregates = new Map<string, ClientAggregate>();
 
-    // Initialize map for all tagged accounts
-    for (const socialAcc of socialAccounts) {
-      for (const acc of socialAcc.adAccounts) {
-        const tag = acc.clientTag?.trim() || socialAcc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
-
-        if (clientIdParam && tag.toLowerCase() !== clientIdParam.toLowerCase()) {
-          continue;
-        }
-
-        if (!clientAggregates.has(tag)) {
-          clientAggregates.set(tag, {
-            client_id: tag,
-            currency: "USD",
-            spend: 0,
-            impressions: 0,
-            clicks: 0,
-            unique_clicks: 0,
-            fb_leads: 0,
-            conversions: 0,
-            ad_accounts_count: 1
-          });
-        } else {
-          const existing = clientAggregates.get(tag)!;
-          existing.ad_accounts_count += 1;
-        }
-      }
-    }
-
-    // Accumulate metrics
+    // Accumulate metrics from insights
     for (const item of insights) {
       const accInfo = adAccountMap.get(item.adAccountId);
       if (!accInfo) continue;
 
-      const tag = accInfo.clientTag;
-      if (clientIdParam && tag.toLowerCase() !== clientIdParam.toLowerCase()) {
-        continue;
+      const baseTag = accInfo.clientTag;
+      const rawCountry = item.country?.trim();
+      const countryCode = rawCountry && rawCountry !== "ALL" && rawCountry !== "UNKNOWN"
+        ? rawCountry.toUpperCase()
+        : null;
+
+      const fullClientId = countryCode ? `${baseTag} - ${countryCode}` : baseTag;
+
+      // Filter by client_id parameter if supplied (supports matching full ID or base tag)
+      if (clientIdParam) {
+        const matchesFull = fullClientId.toLowerCase() === clientIdParam.toLowerCase();
+        const matchesBase = baseTag.toLowerCase() === clientIdParam.toLowerCase();
+        if (!matchesFull && !matchesBase) {
+          continue;
+        }
       }
 
-      let agg = clientAggregates.get(tag);
+      let agg = clientAggregates.get(fullClientId);
       if (!agg) {
         agg = {
-          client_id: tag,
+          client_id: fullClientId,
+          client_tag: baseTag,
+          country: countryCode,
           currency: "USD",
           spend: 0,
           impressions: 0,
@@ -169,7 +157,7 @@ export async function GET(req: Request) {
           conversions: 0,
           ad_accounts_count: 1
         };
-        clientAggregates.set(tag, agg);
+        clientAggregates.set(fullClientId, agg);
       }
 
       agg.spend += item.spend;
@@ -178,6 +166,42 @@ export async function GET(req: Request) {
       agg.unique_clicks += item.uniqueClicks;
       agg.fb_leads += item.leads;
       agg.conversions += item.conversions;
+    }
+
+    // Ensure all active client tags appear even if they had 0 spend in this period
+    for (const socialAcc of socialAccounts) {
+      for (const acc of socialAcc.adAccounts) {
+        const baseTag = acc.clientTag?.trim() || socialAcc.clientTag?.trim() || socialAcc.name || acc.name || acc.id;
+
+        if (clientIdParam && baseTag.toLowerCase() !== clientIdParam.toLowerCase()) {
+          // Check if any geo-specific entry for this baseTag exists in clientAggregates
+          const hasGeoEntry = Array.from(clientAggregates.values()).some(
+            a => a.client_tag.toLowerCase() === baseTag.toLowerCase()
+          );
+          if (!hasGeoEntry) continue;
+        }
+
+        // If no insights were recorded for this baseTag at all, add a default 0-spend entry
+        const hasAnyEntry = Array.from(clientAggregates.values()).some(
+          a => a.client_tag.toLowerCase() === baseTag.toLowerCase()
+        );
+
+        if (!hasAnyEntry) {
+          clientAggregates.set(baseTag, {
+            client_id: baseTag,
+            client_tag: baseTag,
+            country: null,
+            currency: "USD",
+            spend: 0,
+            impressions: 0,
+            clicks: 0,
+            unique_clicks: 0,
+            fb_leads: 0,
+            conversions: 0,
+            ad_accounts_count: 1
+          });
+        }
+      }
     }
 
     // Format output with calculated ratios and exact cent rounding
@@ -195,6 +219,8 @@ export async function GET(req: Request) {
 
       return {
         client_id: agg.client_id,
+        client_tag: agg.client_tag,
+        country: agg.country,
         currency: "USD",
         spend,
         impressions,

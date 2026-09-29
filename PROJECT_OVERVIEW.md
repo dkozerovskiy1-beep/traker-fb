@@ -58,7 +58,7 @@
 2. **`FbSocialAccount`**: Підключений Facebook профіль. Зберігає довготривалий access token (`accessToken`), термін його дії та прив'язаного користувача.
 3. **`FbAdAccount`**: Рекламний кабінет (`act_...`). Поля: `status` (`ACTIVE` / `DISABLED`), `spend`, `currency`, `timezoneName`, `lastSyncedAt`, `disabledAt`.
 4. **`FbCampaign` / `FbAdSet` / `FbAd`**: Структурна ієрархія реклами Meta.
-5. **`DailyInsight`**: Щоденні агреговані метрики (витрати, покази, кліки, ліди, конверсії). Унікальний індекс: `[date, adAccountId, campaignId, adsetId, adId]`.
+5. **`DailyInsight`**: Щоденні агреговані метрики (витрати, покази, кліки, ліди, конверсії, країна). Унікальний індекс: `[date, adAccountId, campaignId, adsetId, adId, country]`.
 6. **`FbPage`**: Facebook Страница, прив'язана до профілю. Зберігає token для модерації коментарів.
 7. **`FbComment`**: Коментарі на рекламних постах. Поля: `status` (`VISIBLE`, `HIDDEN`, `DELETED`).
 8. **`AutomationRule`**: Правило авто-зупинки (наприклад, зупинити кампанію, якщо spend > X чи CPL > Y).

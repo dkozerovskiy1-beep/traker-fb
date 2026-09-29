@@ -386,15 +386,17 @@ export async function GET(req: Request) {
                   const ctrVal = insight.impressions > 0 ? roundCurrency((insight.clicks / insight.impressions) * 100) : 0;
                   const cpcVal = insight.clicks > 0 ? roundCurrency(spendVal / insight.clicks) : 0;
                   const cpmVal = insight.impressions > 0 ? roundCurrency((spendVal / insight.impressions) * 1000) : 0;
+                  const countryVal = insight.country || fbAdSets.find(s => s.id === insight.adsetId)?.targetCountry || "ALL";
 
                   return db.dailyInsight.upsert({
                     where: {
-                      date_adAccountId_campaignId_adsetId_adId: {
+                      date_adAccountId_campaignId_adsetId_adId_country: {
                         date: dateObj,
                         adAccountId: adAccount.id,
                         campaignId: insight.campaignId,
                         adsetId: insight.adsetId || "null",
-                        adId: insight.adId || "null"
+                        adId: insight.adId || "null",
+                        country: countryVal
                       }
                     },
                     update: {
@@ -421,6 +423,7 @@ export async function GET(req: Request) {
                       adsetName: insight.adsetName,
                       adId: insight.adId || "null",
                       adName: insight.adName,
+                      country: countryVal,
                       spend: spendVal,
                       impressions: insight.impressions,
                       clicks: insight.clicks,
