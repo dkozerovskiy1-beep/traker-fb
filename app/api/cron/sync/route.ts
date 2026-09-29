@@ -378,6 +378,21 @@ export async function GET(req: Request) {
               // Filter out empty zero-activity insight rows to save DB writes
               const activeInsights = insights.filter(i => i.spend > 0 || i.impressions > 0 || i.clicks > 0 || i.leads > 0);
 
+              // If real country breakdown is present, clean up legacy 'ALL' or invalid rows for this account in this date range
+              if (activeInsights.some(i => i.country && i.country !== "ALL")) {
+                const startSyncDateObj = parseKyivDateToUTC(startDateStr);
+                const endSyncDateObj = parseKyivDateToUTC(endDateStr);
+                endSyncDateObj.setUTCHours(23, 59, 59, 999);
+
+                await db.dailyInsight.deleteMany({
+                  where: {
+                    adAccountId: adAccount.id,
+                    date: { gte: startSyncDateObj, lte: endSyncDateObj },
+                    country: { in: ["ALL", "GP", "UNKNOWN"] }
+                  }
+                }).catch(() => {});
+              }
+
               // Parallelize daily insights upserts
               await Promise.all(
                 activeInsights.map(insight => {

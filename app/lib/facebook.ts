@@ -232,6 +232,18 @@ export async function moderateFacebookComment(
   }
 }
 
+const KNOWN_GEO_CODES = new Set([
+  "UA", "KZ", "DE", "PL", "CZ", "US", "GB", "CA", "AU", "AT", "CH", "IT", "ES", "FR", "PT",
+  "NL", "BE", "SE", "NO", "FI", "DK", "IE", "GR", "HU", "SK", "BG", "RO", "HR", "RS", "SI",
+  "LT", "LV", "EE", "CY", "MT", "MD", "AZ", "UZ", "KG", "TJ", "TM", "GE", "AM", "TR", "AE",
+  "SA", "QA", "KW", "BH", "OM", "IL", "EG", "ZA", "NG", "KE", "MA", "BR", "MX", "AR", "CO",
+  "CL", "PE", "EC", "TH", "VN", "ID", "PH", "MY", "SG", "IN", "NZ", "JP", "KR", "TW", "HK"
+]);
+
+// Non-geo prefixes/tags that should never be matched as countries:
+// "GP" (Google Play / Group), "MC" (Micro/Campaign), "AD" (Ad), "DP", "FB", "TG", "BM", "AB", "PR", "CR"
+const IGNORED_PREFIXES = new Set(["GP", "MC", "AD", "DP", "FB", "TG", "BM", "AB", "PR", "CR", "CBO", "ABO"]);
+
 /**
  * Helper to normalize country code or extract from adset/campaign names if not detected.
  */
@@ -250,17 +262,24 @@ export function extractCountryCode(
     // 1. Bracketed codes e.g. [DE], (KZ), [PL]
     const bracketMatch = name.match(/[\[\(]([a-zA-Z]{2})[\]\)]/);
     if (bracketMatch && bracketMatch[1]) {
-      return bracketMatch[1].toUpperCase();
+      const code = bracketMatch[1].toUpperCase();
+      if (KNOWN_GEO_CODES.has(code)) return code;
     }
-    // 2. Prefix codes e.g. "de -", "KZ -", "pl_", "DE/", "kz:"
+    // 2. Prefix codes e.g. "de -", "KZ -", "pl_", "DE/", "kz:" (exclude ignored non-geo prefixes like gp-, mc-)
     const prefixMatch = name.match(/^([a-zA-Z]{2})[\s_\-\/:]/);
     if (prefixMatch && prefixMatch[1]) {
-      return prefixMatch[1].toUpperCase();
+      const code = prefixMatch[1].toUpperCase();
+      if (KNOWN_GEO_CODES.has(code) && !IGNORED_PREFIXES.has(code)) {
+        return code;
+      }
     }
-    // 3. Separator codes e.g. "- de -", "_kz_", "- pl"
-    const sepMatch = name.match(/[\s_\-\/]([a-zA-Z]{2})[\s_\-\/]/);
-    if (sepMatch && sepMatch[1]) {
-      return sepMatch[1].toUpperCase();
+    // 3. Slash or hyphen separated tokens e.g. "gp-de/cz/pl-..." or "- de -"
+    const tokens = name.split(/[\s_\-\/:\[\]\(\)]+/);
+    for (const token of tokens) {
+      const upper = token.toUpperCase();
+      if (upper.length === 2 && KNOWN_GEO_CODES.has(upper) && !IGNORED_PREFIXES.has(upper)) {
+        return upper;
+      }
     }
   }
 
