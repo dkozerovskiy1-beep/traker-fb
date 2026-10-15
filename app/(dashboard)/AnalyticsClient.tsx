@@ -15,6 +15,8 @@ interface AdAccountOption {
 interface SocialAccountOption {
   id: string;
   name: string;
+  status?: string;
+  clientTag?: string | null;
 }
 
 interface FbAd {
@@ -607,6 +609,45 @@ export default function AnalyticsClient({
 
   return (
     <>
+      {/* Alert Banner if any Social Account is in NEEDS_REAUTH */}
+      {(() => {
+        const checkpointed = socialAccounts.filter(s => s.status === "NEEDS_REAUTH");
+        if (checkpointed.length === 0) return null;
+        return (
+          <div style={{
+            backgroundColor: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.45)",
+            borderRadius: "var(--radius-md)",
+            padding: "14px 18px",
+            marginBottom: "16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "14px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <span style={{ fontSize: "22px" }}>⚠️</span>
+              <div>
+                <div style={{ fontWeight: "700", color: "#f87171", fontSize: "14px", marginBottom: "2px" }}>
+                  Увага! {checkpointed.length === 1 ? "Соц-профіль вилетів на чек у Facebook" : `${checkpointed.length} соц-профілі вилетіли на чек у Facebook`}
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
+                  Синхронізація витрат для: <strong style={{ color: "#fff" }}>{checkpointed.map(a => a.name).join(", ")}</strong> зупинена. Потрібно пройти перевірку у Facebook та підключити через інвайт.
+                </div>
+              </div>
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ padding: "6px 14px", fontSize: "12px", backgroundColor: "#ef4444", borderColor: "#dc2626", color: "#fff" }}
+              onClick={() => router.push("/accounts")}
+            >
+              Перейти до керування профілями →
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Top Title & Filters Row */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "16px", marginBottom: "8px" }}>
         <div>

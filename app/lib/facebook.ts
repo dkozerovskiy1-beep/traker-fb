@@ -43,6 +43,20 @@ export interface FbCampaignInsight {
   conversions: number;
 }
 
+export class MetaAuthError extends Error {
+  code?: number;
+  subcode?: number;
+  type?: string;
+
+  constructor(message: string, code?: number, subcode?: number, type?: string) {
+    super(message);
+    this.name = "MetaAuthError";
+    this.code = code;
+    this.subcode = subcode;
+    this.type = type;
+  }
+}
+
 const FB_API_VERSION = "v21.0";
 
 /**
@@ -140,7 +154,21 @@ export async function getManagedAdAccounts(accessToken: string): Promise<FbAdAcc
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Failed to fetch ad accounts: ${err.error?.message || res.statusText}`);
+    const errData = err.error || {};
+    const isAuth =
+      errData.code === 190 ||
+      errData.code === 102 ||
+      errData.type === "OAuthException" ||
+      (typeof errData.message === "string" && (
+        errData.message.includes("access token") ||
+        errData.message.includes("Session has been invalidated") ||
+        errData.message.includes("checkpoint")
+      ));
+
+    if (isAuth) {
+      throw new MetaAuthError(errData.message || res.statusText, errData.code, errData.error_subcode, errData.type);
+    }
+    throw new Error(`Failed to fetch ad accounts: ${errData.message || res.statusText}`);
   }
 
   const data = await res.json();

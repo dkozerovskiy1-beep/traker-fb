@@ -49,7 +49,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     // 1. Fetch filter options (filtered by logged-in user)
     socialAccountOptions = await db.fbSocialAccount.findMany({
       where: { userId: user.id },
-      select: { id: true, name: true }
+      select: { id: true, name: true, status: true, clientTag: true }
     });
 
     adAccountOptions = await db.fbAdAccount.findMany({

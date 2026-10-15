@@ -7,7 +7,8 @@ import {
   getAdAccountAdSets,
   getAdAccountAds,
   getPageRecentComments,
-  moderateFacebookComment
+  moderateFacebookComment,
+  MetaAuthError
 } from "@/app/lib/facebook";
 import { sendTelegramAlert } from "@/app/lib/telegram";
 import { getLoggedInUser } from "@/app/lib/auth";
@@ -48,10 +49,10 @@ export async function GET(req: Request) {
     syncStartDate.setTime(syncStartDate.getTime() - (daysToSync - 1) * 24 * 60 * 60 * 1000);
     const startDateStr = getKyivDateString(syncStartDate);
 
-    // 2. Fetch all active Facebook Social Accounts (filtered to current user if manually triggered)
+    // 2. Fetch active or reauth-needed Facebook Social Accounts (filtered to current user if manually triggered)
     const activeSocialAccounts = await db.fbSocialAccount.findMany({
       where: {
-        status: "ACTIVE",
+        status: { in: ["ACTIVE", "NEEDS_REAUTH"] },
         ...(user ? { userId: user.id } : {})
       },
       include: { 
@@ -71,12 +72,74 @@ export async function GET(req: Request) {
         let fbAdAccounts: any[] = [];
         try {
           fbAdAccounts = await getManagedAdAccounts(socialAccount.accessToken);
-        } catch (err) {
-          console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id}:`, err);
-          // If the access token is invalid, expired, or revoked, subsequent Graph API calls for its 
-          // campaigns, adsets, ads, and insights will also fail. To prevent dozens of hanging HTTP 
-          // requests that cause Vercel timeouts, we skip this social account entirely.
+        } catch (err: any) {
+          const isAuthError =
+            err instanceof MetaAuthError ||
+            err.code === 190 ||
+            err.code === 102 ||
+            (typeof err.message === "string" && (
+              err.message.includes("access token") ||
+              err.message.includes("Session has been invalidated") ||
+              err.message.includes("checkpoint") ||
+              err.message.includes("OAuthException")
+            ));
+
+          if (isAuthError) {
+            console.error(`Meta auth error for socialAccount ${socialAccount.name} (${socialAccount.id}):`, err.message);
+
+            // Alert only once when transitioning from ACTIVE to NEEDS_REAUTH
+            if (socialAccount.status === "ACTIVE") {
+              await db.fbSocialAccount.update({
+                where: { id: socialAccount.id },
+                data: { status: "NEEDS_REAUTH" }
+              }).catch(() => {});
+
+              const accountUser = (socialAccount as any).user;
+              if (accountUser && accountUser.telegramChatId) {
+                const subcode = err.subcode;
+                let reasonText = "Сесію Facebook анульовано Meta (виліт на чекпоінт або підозріла активність).";
+                if (subcode === 460) {
+                  reasonText = "Профіль вилетів на чекпоінт (Security Checkpoint) або змінено пароль.";
+                } else if (subcode === 463) {
+                  reasonText = "Термін дії довготривалого токена минув.";
+                } else if (subcode === 458) {
+                  reasonText = "Дозволи для додатку було відкликано у Facebook.";
+                }
+
+                await sendTelegramAlert(
+                  `🚨 <b>[VartaFlow Alert] СОЦ-ПРОФІЛЬ ВИЛЕТІВ НА ЧЕК!</b>\n\n` +
+                  `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                  `• <b>ID:</b> <code>${socialAccount.id}</code>\n` +
+                  `• <b>Тег:</b> ${socialAccount.clientTag || "Не вказано"}\n` +
+                  `• <b>Причина:</b> ${reasonText}\n\n` +
+                  `⚠️ <i>Синхронізацію витрат за цим профілем призупинено. Пройдіть перевірку у Facebook та підключіть профіль повторно через інвайт-посилання у трекері.</i>`,
+                  accountUser.telegramChatId
+                ).catch(e => console.error("Failed to send telegram checkpoint alert:", e));
+              }
+            }
+          } else {
+            console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id}:`, err);
+          }
           return;
+        }
+
+        // If previously NEEDS_REAUTH, but now succeeded: restore ACTIVE status and notify!
+        if (socialAccount.status === "NEEDS_REAUTH") {
+          await db.fbSocialAccount.update({
+            where: { id: socialAccount.id },
+            data: { status: "ACTIVE" }
+          }).catch(() => {});
+
+          const accountUser = (socialAccount as any).user;
+          if (accountUser && accountUser.telegramChatId) {
+            await sendTelegramAlert(
+              `✅ <b>[VartaFlow Alert] СОЦ-ПРОФІЛЬ ВІДНОВЛЕНО!</b>\n\n` +
+              `• <b>Профіль:</b> ${socialAccount.name}\n` +
+              `• <b>ID:</b> <code>${socialAccount.id}</code>\n` +
+              `• <b>Статус:</b> Токен дійсний, синхронізацію витрат успішно відновлено!`,
+              accountUser.telegramChatId
+            ).catch(e => console.error("Failed to send telegram restored alert:", e));
+          }
         }
 
         // Parallelize processing of all managed ad accounts for this social account

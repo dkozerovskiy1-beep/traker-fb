@@ -349,6 +349,25 @@ export default function AccountsClient({
     }
   };
 
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  const handleSendTestAlert = async () => {
+    setIsSendingTest(true);
+    try {
+      const res = await fetch("/api/user/test-telegram", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        toast.success("Тестове сповіщення успішно надіслано в Telegram!");
+      } else {
+        toast.error("Помилка відправки: " + (data.error || "Невідома помилка"));
+      }
+    } catch (err: any) {
+      toast.error("Помилка запиту: " + err.message);
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
+
   const handleDisconnectTelegram = async () => {
     const confirmed = await confirm("Ви впевнені, що хочете вимкнути Telegram-сповіщення?", { title: "Telegram-сповіщення" });
     if (!confirmed) return;
@@ -495,6 +514,63 @@ export default function AccountsClient({
         </div>
       </div>
 
+      {/* Checkpoint / Reauth Needed Alert Banner */}
+      {(() => {
+        const reauthNeeded = socialAccounts.filter(s => s.status === "NEEDS_REAUTH");
+        if (reauthNeeded.length === 0) return null;
+        return (
+          <div style={{
+            backgroundColor: "rgba(239, 68, 68, 0.12)",
+            border: "1px solid rgba(239, 68, 68, 0.45)",
+            borderRadius: "var(--radius-md)",
+            padding: "16px 20px",
+            marginTop: "16px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: "16px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <div style={{
+                width: "42px",
+                height: "42px",
+                borderRadius: "50%",
+                backgroundColor: "rgba(239, 68, 68, 0.2)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "22px",
+                flexShrink: 0
+              }}>
+                ⚠️
+              </div>
+              <div>
+                <div style={{ fontWeight: "700", color: "#f87171", fontSize: "15px", marginBottom: "3px" }}>
+                  Увага! {reauthNeeded.length === 1 ? "Соц-профіль вилетів на чек у Facebook" : `${reauthNeeded.length} соц-профілі вилетіли на чек у Facebook`}
+                </div>
+                <div style={{ fontSize: "13px", color: "var(--text-secondary)" }}>
+                  Синхронізацію призупинено для: <strong style={{ color: "#fff" }}>{reauthNeeded.map(a => a.name).join(", ")}</strong>. Будь ласка, перевірте профіль у Facebook та підключіть через інвайт-посилання.
+                </div>
+              </div>
+            </div>
+            <button
+              className="btn btn-primary"
+              style={{ backgroundColor: "#ef4444", borderColor: "#dc2626", color: "#fff", whiteSpace: "nowrap" }}
+              onClick={() => {
+                const first = reauthNeeded[0];
+                setDescription(first?.clientTag || first?.name || "");
+                setIsOneTime(false);
+                setNewInviteUrl("");
+                setIsModalOpen(true);
+              }}
+            >
+              🔗 Створити інвайт для перепідключення
+            </button>
+          </div>
+        );
+      })()}
+
       {/* Connected Accounts Table */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
@@ -527,10 +603,11 @@ export default function AccountsClient({
                   const totalSpend = acc.adAccounts.reduce((sum, ad) => sum + ad.spend, 0);
                   const activeCabinets = acc.adAccounts.filter(ad => ad.status === "ACTIVE").length;
                   const isExpanded = !!expandedSocials[acc.id];
+                  const isCheckpoint = acc.status === "NEEDS_REAUTH";
 
                   return (
                     <Fragment key={acc.id}>
-                      <tr>
+                      <tr style={{ backgroundColor: isCheckpoint ? "rgba(239, 68, 68, 0.08)" : undefined }}>
                         {/* Profile Info */}
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -538,19 +615,19 @@ export default function AccountsClient({
                               <img
                                 src={acc.avatarUrl}
                                 alt={acc.name}
-                                style={{ width: "34px", height: "34px", borderRadius: "50%", border: "1px solid var(--border-color)", flexShrink: 0 }}
+                                style={{ width: "34px", height: "34px", borderRadius: "50%", border: isCheckpoint ? "2px solid #ef4444" : "1px solid var(--border-color)", flexShrink: 0 }}
                               />
                             ) : (
                               <div style={{
                                 width: "34px",
                                 height: "34px",
                                 borderRadius: "50%",
-                                backgroundColor: "var(--border-color-glow)",
+                                backgroundColor: isCheckpoint ? "rgba(239, 68, 68, 0.2)" : "var(--border-color-glow)",
                                 display: "flex",
                                 alignItems: "center",
                                 justifyContent: "center",
                                 fontWeight: "600",
-                                color: "var(--color-accent)",
+                                color: isCheckpoint ? "#f87171" : "var(--color-accent)",
                                 flexShrink: 0
                               }}>
                                 {acc.name.charAt(0).toUpperCase()}
@@ -558,7 +635,7 @@ export default function AccountsClient({
                             )}
                             <div>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                <span style={{ fontWeight: "600", color: "var(--text-primary)" }}>{acc.name}</span>
+                                <span style={{ fontWeight: "600", color: isCheckpoint ? "#fca5a5" : "var(--text-primary)" }}>{acc.name}</span>
                                 <button
                                   type="button"
                                   onClick={() => handleRenameAccount(acc.id, acc.name)}
@@ -585,6 +662,11 @@ export default function AccountsClient({
                               <div style={{ fontSize: "11px", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginTop: "1px" }}>
                                 ID: {acc.id}
                               </div>
+                              {isCheckpoint && (
+                                <div style={{ fontSize: "11px", color: "#f87171", fontWeight: "600", marginTop: "3px", display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <span>⚠️ Сесію анульовано Meta (виліт на чек)</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -660,14 +742,57 @@ export default function AccountsClient({
 
                         {/* Status */}
                         <td>
-                          <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
-                            {acc.status === "ACTIVE" ? "Активний" : "Неактивний"}
-                          </span>
+                          {isCheckpoint ? (
+                            <span
+                              className="badge"
+                              style={{
+                                backgroundColor: "rgba(239, 68, 68, 0.2)",
+                                color: "#f87171",
+                                border: "1px solid rgba(239, 68, 68, 0.5)",
+                                fontSize: "10px",
+                                padding: "2px 8px",
+                                fontWeight: "700",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                whiteSpace: "nowrap"
+                              }}
+                              title="Сесію Facebook анульовано. Пройдіть перевірку та підключіть профіль повторно"
+                            >
+                              ⚠️ Вилетів на чек
+                            </span>
+                          ) : (
+                            <span className={`badge ${acc.status === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
+                              {acc.status === "ACTIVE" ? "Активний" : "Неактивний"}
+                            </span>
+                          )}
                         </td>
 
                         {/* Actions */}
                         <td style={{ textAlign: "right" }}>
                           <div style={{ display: "inline-flex", gap: "6px" }}>
+                            {isCheckpoint && (
+                              <button
+                                className="btn"
+                                style={{
+                                  padding: "4px 10px",
+                                  fontSize: "11px",
+                                  backgroundColor: "rgba(239, 68, 68, 0.2)",
+                                  color: "#f87171",
+                                  border: "1px solid rgba(239, 68, 68, 0.5)",
+                                  fontWeight: "600"
+                                }}
+                                onClick={() => {
+                                  setDescription(acc.clientTag || acc.name);
+                                  setIsOneTime(false);
+                                  setNewInviteUrl("");
+                                  setIsModalOpen(true);
+                                }}
+                                title="Створити інвайт для повторного підключення"
+                              >
+                                🔗 Перепідключити
+                              </button>
+                            )}
                             <button
                               className="btn btn-secondary"
                               style={{ padding: "4px 10px", fontSize: "11px" }}
@@ -946,6 +1071,128 @@ export default function AccountsClient({
           </div>
         </div>
       )}
+
+      {/* Telegram Notifications Settings Card */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <h2 style={{ fontSize: "16px", margin: 0 }}>Сповіщення в Telegram</h2>
+              {telegramChatId ? (
+                <span className="badge badge-success" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                  🟢 Підключено
+                </span>
+              ) : (
+                <span className="badge badge-warning" style={{ fontSize: "11px", padding: "2px 8px" }}>
+                  ⚪️ Не підключено
+                </span>
+              )}
+            </div>
+            <p className="subtitle" style={{ marginTop: "4px", margin: 0 }}>
+              Миттєві сповіщення про виліт соців на чек, бани кабінетів, відхилені оголошення та коментарі
+            </p>
+          </div>
+
+          {telegramChatId && (
+            <button
+              className="btn btn-secondary"
+              style={{ padding: "6px 14px", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}
+              onClick={handleSendTestAlert}
+              disabled={isSendingTest}
+            >
+              <span>{isSendingTest ? "Відправка..." : "✈️ Надіслати тестове сповіщення"}</span>
+            </button>
+          )}
+        </div>
+
+        {telegramChatId ? (
+          <div>
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              backgroundColor: "rgba(255, 255, 255, 0.02)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "var(--radius-sm)",
+              marginBottom: "16px",
+              flexWrap: "wrap",
+              gap: "10px"
+            }}>
+              <div style={{ fontSize: "13px" }}>
+                Бот підключено до чату: <code style={{ color: "var(--color-accent)", fontWeight: "600" }}>{telegramChatId}</code>
+              </div>
+              <button
+                className="btn btn-danger"
+                style={{ padding: "4px 10px", fontSize: "11px" }}
+                onClick={handleDisconnectTelegram}
+                disabled={isUpdatingSettings}
+              >
+                Вимкнути Telegram
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "12px" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={alertOnBans}
+                  onChange={(e) => handleToggleChange("alertOnBans", e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "var(--color-accent)" }}
+                />
+                <span style={{ fontSize: "13px" }}>🚨 <strong>Виліт соца на чек</strong> та бани кабінетів</span>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={alertOnRejections}
+                  onChange={(e) => handleToggleChange("alertOnRejections", e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "var(--color-accent)" }}
+                />
+                <span style={{ fontSize: "13px" }}>🚫 <strong>Відхилені креативи</strong> Meta (Disapproved)</span>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={alertOnApprovals}
+                  onChange={(e) => handleToggleChange("alertOnApprovals", e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "var(--color-accent)" }}
+                />
+                <span style={{ fontSize: "13px" }}>✅ <strong>Схвалені креативи</strong> (Active після модерації)</span>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px", backgroundColor: "rgba(255,255,255,0.02)", border: "1px solid var(--border-color)", borderRadius: "var(--radius-sm)", cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={alertOnComments}
+                  onChange={(e) => handleToggleChange("alertOnComments", e.target.checked)}
+                  style={{ width: "16px", height: "16px", accentColor: "var(--color-accent)" }}
+                />
+                <span style={{ fontSize: "13px" }}>💬 <strong>Автомодерація коментарів</strong></span>
+              </label>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "24px", color: "var(--text-secondary)" }}>
+            <p style={{ fontSize: "13px", marginBottom: "14px" }}>
+              Підключіть Telegram, щоб миттєво отримувати сповіщення, коли соц вилітає на чек або баняться оголошення.
+            </p>
+            {currentUser && (
+              <a
+                href={`https://t.me/${botUsername}?start=${currentUser.id}`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary"
+                style={{ display: "inline-flex", alignItems: "center", gap: "8px", textDecoration: "none" }}
+              >
+                <span>✈️ Підключити Telegram бота (@{botUsername})</span>
+              </a>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Collapsible Export REST API Key Card */}
       <div className="card">
