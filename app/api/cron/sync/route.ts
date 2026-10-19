@@ -8,7 +8,8 @@ import {
   getAdAccountAds,
   getPageRecentComments,
   moderateFacebookComment,
-  MetaAuthError
+  MetaAuthError,
+  verifyFacebookAccessToken
 } from "@/app/lib/facebook";
 import { sendTelegramAlert } from "@/app/lib/telegram";
 import { getLoggedInUser } from "@/app/lib/auth";
@@ -78,14 +79,28 @@ export async function GET(req: Request) {
             err.code === 190 ||
             err.code === 102 ||
             (typeof err.message === "string" && (
-              err.message.includes("access token") ||
               err.message.includes("Session has been invalidated") ||
-              err.message.includes("checkpoint") ||
-              err.message.includes("OAuthException")
+              err.message.includes("Error validating access token") ||
+              err.message.includes("The access token could not be decrypted") ||
+              err.message.includes("checkpoint")
             ));
 
+          // Double check: if it looks like an auth error, verify if user token (/me) is really dead
+          // before raising a false alarm!
+          let isConfirmedDead = false;
           if (isAuthError) {
-            console.error(`Meta auth error for socialAccount ${socialAccount.name} (${socialAccount.id}):`, err.message);
+            const isTokenAlive = await verifyFacebookAccessToken(socialAccount.accessToken);
+            if (!isTokenAlive) {
+              isConfirmedDead = true;
+            } else {
+              console.warn(
+                `Temporary ad accounts fetch error for socialAccount ${socialAccount.name} (${socialAccount.id}), but user token is still valid. Skipping false alarm.`
+              );
+            }
+          }
+
+          if (isConfirmedDead) {
+            console.error(`Confirmed Meta auth error for socialAccount ${socialAccount.name} (${socialAccount.id}):`, err.message);
 
             // Alert only once when transitioning from ACTIVE to NEEDS_REAUTH
             if (socialAccount.status === "ACTIVE") {
@@ -118,7 +133,7 @@ export async function GET(req: Request) {
               }
             }
           } else {
-            console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id}:`, err);
+            console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id} (${socialAccount.name}):`, err.message || err);
           }
           return;
         }

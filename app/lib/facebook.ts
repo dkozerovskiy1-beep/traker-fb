@@ -146,6 +146,29 @@ export async function getFacebookUserProfile(accessToken: string): Promise<FbPro
 }
 
 /**
+ * Lightweight check to verify whether a Facebook user access token is actually still valid.
+ * Calls /me?fields=id.
+ * Returns true if valid or if a transient network error occurred (safe assumption).
+ * Returns false ONLY if Meta definitively returns an auth failure (code 190 or 102).
+ */
+export async function verifyFacebookAccessToken(accessToken: string): Promise<boolean> {
+  try {
+    const url = `https://graph.facebook.com/${FB_API_VERSION}/me?fields=id&access_token=${accessToken}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const code = err.error?.code;
+      if (code === 190 || code === 102) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return true; // Transient network error, assume alive to avoid false alarms
+  }
+}
+
+/**
  * Fetches all ad accounts managed by this user.
  */
 export async function getManagedAdAccounts(accessToken: string): Promise<FbAdAccountData[]> {
@@ -155,13 +178,16 @@ export async function getManagedAdAccounts(accessToken: string): Promise<FbAdAcc
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     const errData = err.error || {};
+    // Check if error is specifically an auth/session invalidation error (Code 190 or 102).
+    // IMPORTANT: Meta returns "type": "OAuthException" for ALL errors (rate limits, 500s, invalid params).
+    // Therefore we NEVER treat generic OAuthException as an auth error unless it has code 190 or 102.
     const isAuth =
       errData.code === 190 ||
       errData.code === 102 ||
-      errData.type === "OAuthException" ||
       (typeof errData.message === "string" && (
-        errData.message.includes("access token") ||
         errData.message.includes("Session has been invalidated") ||
+        errData.message.includes("Error validating access token") ||
+        errData.message.includes("The access token could not be decrypted") ||
         errData.message.includes("checkpoint")
       ));
 
