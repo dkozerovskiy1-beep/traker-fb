@@ -38,6 +38,30 @@ export async function POST(req: Request) {
       const adminPassword = process.env.ADMIN_PASSWORD || "admin";
       if (trimmedEmail === adminEmail && password === adminPassword) {
         isValid = true;
+        const hashedPassword = await hashPassword(password);
+
+        // Find existing admin record (either current adminEmail or legacy admin@tracker.com)
+        const existingAdmin = await db.user.findFirst({
+          where: { email: { in: ["admin@tracker.com", adminEmail] } }
+        });
+
+        if (existingAdmin) {
+          await db.user.update({
+            where: { id: existingAdmin.id },
+            data: {
+              email: adminEmail,
+              password: hashedPassword
+            }
+          }).catch(err => console.error("Failed to update admin in DB:", err));
+        } else {
+          await db.user.create({
+            data: {
+              email: adminEmail,
+              name: "Адміністратор",
+              password: hashedPassword
+            }
+          }).catch(err => console.error("Failed to create admin in DB:", err));
+        }
       }
 
       // Check for Meta App Review credentials from env or fallback
