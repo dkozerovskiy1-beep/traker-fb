@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
 import { signJWT } from "@/app/lib/auth";
+import { hashPassword } from "@/app/lib/passwords";
 
 export async function POST(req: Request) {
   try {
@@ -36,11 +37,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // Create user in DB (Plain text password for consistency with current schema)
+    // Hash password with bcrypt before saving to DB
+    const hashedPassword = await hashPassword(password);
+
     const newUser = await db.user.create({
       data: {
         email: trimmedEmail,
-        password,
+        password: hashedPassword,
         name: name || null
       }
     });

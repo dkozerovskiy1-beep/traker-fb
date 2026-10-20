@@ -43,9 +43,12 @@
 ### Змінні оточення (`.env` / Vercel Environment Variables)
 * `DATABASE_URL`: Строка підключення до PostgreSQL (Supabase).
 * `FACEBOOK_APP_ID`: ID додатку розробника Facebook.
-* `FACEBOOK_APP_SECRET`: Секрет додатку Facebook.
+* `FACEBOOK_APP_SECRET`: Секрет додатку Facebook (використовується для OAuth та перевірки підпису вебхуків HMAC-SHA256).
 * `FACEBOOK_REDIRECT_URI`: URI перенаправлення для OAuth (`/api/auth/facebook/callback`).
-* `APP_SECRET`: Секретний ключ для JWT-токенів та сесій.
+* `APP_SECRET`: Секретний ключ для шифрування JWT-токенів та сесій.
+* `ENCRYPTION_KEY`: Секретний ключ для симетричного шифрування токенів Facebook (AES-256-GCM). Якщо не задано, використовує `APP_SECRET`.
+* `CRON_SECRET`: Секретний токен для авторизації запуску фонової синхронізації (`/api/cron/sync`).
+* `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`: Налаштування та секрет перевірки вебхуків Telegram бота.
 * `ADMIN_EMAIL` / `ADMIN_PASSWORD`: Дефолтні дані адміністратора.
 
 ---

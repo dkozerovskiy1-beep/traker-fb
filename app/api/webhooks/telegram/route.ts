@@ -7,6 +7,15 @@ import { db } from "@/app/lib/db";
  */
 export async function POST(req: Request) {
   try {
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (webhookSecret) {
+      const headerSecret = req.headers.get("x-telegram-bot-api-secret-token");
+      if (headerSecret !== webhookSecret) {
+        console.warn("Invalid or missing Telegram webhook secret token");
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+    }
+
     const body = await req.json().catch(() => ({}));
     const message = body.message;
 

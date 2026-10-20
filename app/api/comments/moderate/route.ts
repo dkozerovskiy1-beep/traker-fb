@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
 import { getLoggedInUser } from "@/app/lib/auth";
 import { moderateFacebookComment } from "@/app/lib/facebook";
+import { decryptToken } from "@/app/lib/encryption";
 
 export async function POST(req: Request) {
   try {
@@ -36,7 +37,8 @@ export async function POST(req: Request) {
     }
 
     // Call Facebook API to moderate
-    const result = await moderateFacebookComment(fbCommentId, action, comment.page.accessToken);
+    const decryptedPageToken = decryptToken(comment.page.accessToken);
+    const result = await moderateFacebookComment(fbCommentId, action, decryptedPageToken);
 
     if (!result.success) {
       return NextResponse.json({ 

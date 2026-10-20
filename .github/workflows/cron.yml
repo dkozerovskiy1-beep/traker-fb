@@ -11,9 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Sync Endpoint
+        env:
+          CRON_SECRET_TOKEN: ${{ secrets.CRON_SECRET }}
         run: |
           echo "Triggering VartaFlow cron sync..."
+          AUTH_TOKEN="${CRON_SECRET_TOKEN:-varta_flow_secret_token_2026}"
           RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X GET "https://varta-flow.app/api/cron/sync" \
-            -H "Authorization: Bearer varta_flow_secret_token_2026" \
+            -H "Authorization: Bearer $AUTH_TOKEN" \
             --max-time 300)
           echo "$RESPONSE"

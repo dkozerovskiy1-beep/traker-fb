@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/app/lib/db";
 import { moderateFacebookComment } from "@/app/lib/facebook";
+import { decryptToken } from "@/app/lib/encryption";
+import crypto from "crypto";
 
 // GET handler is used for Facebook Webhook verification
 export async function GET(req: Request) {
@@ -25,7 +27,28 @@ export async function GET(req: Request) {
 // POST handler receives the webhook payload from Facebook
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text();
+    const appSecret = process.env.FACEBOOK_APP_SECRET;
+    const signature = req.headers.get("x-hub-signature-256");
+
+    // Cryptographic validation: Verify HMAC-SHA256 signature sent by Meta
+    if (appSecret && signature) {
+      const hmac = crypto.createHmac("sha256", appSecret);
+      const expectedSignature = `sha256=${hmac.update(rawBody).digest("hex")}`;
+      
+      const signatureBuffer = Buffer.from(signature);
+      const expectedBuffer = Buffer.from(expectedSignature);
+
+      if (
+        signatureBuffer.length !== expectedBuffer.length ||
+        !crypto.timingSafeEqual(signatureBuffer, expectedBuffer)
+      ) {
+        console.warn("Invalid Facebook webhook signature rejected");
+        return new Response("Invalid signature", { status: 401 });
+      }
+    }
+
+    const body = rawBody ? JSON.parse(rawBody) : {};
     console.log("Facebook Webhook received:", JSON.stringify(body, null, 2));
 
     // Make sure it's a page event
@@ -47,6 +70,8 @@ export async function POST(req: Request) {
         console.warn(`Page with ID ${pageId} not found in DB. Skipping webhook.`);
         continue;
       }
+
+      const pageAccessToken = decryptToken(page.accessToken);
 
       for (const change of entry.changes || []) {
         // We only care about page feed changes related to comments
@@ -102,7 +127,7 @@ export async function POST(req: Request) {
               console.log(`[MODERATION TRIGGERED] Comment "${commentText}" matches rule: ${rule.name}. Action: ${rule.action}`);
 
               // Call Facebook Graph API to hide or delete the comment
-              const result = await moderateFacebookComment(commentId, rule.action as "HIDE" | "DELETE", page.accessToken);
+              const result = await moderateFacebookComment(commentId, rule.action as "HIDE" | "DELETE", pageAccessToken);
 
               if (result.success) {
                 // Log the moderation event in the DB

@@ -11,6 +11,7 @@ import {
   MetaAuthError,
   verifyFacebookAccessToken
 } from "@/app/lib/facebook";
+import { decryptToken } from "@/app/lib/encryption";
 import { sendTelegramAlert } from "@/app/lib/telegram";
 import { getLoggedInUser } from "@/app/lib/auth";
 import {
@@ -70,9 +71,10 @@ export async function GET(req: Request) {
     // Parallelize processing of all active social accounts
     await Promise.all(
       activeSocialAccounts.map(async (socialAccount) => {
+        const socialAccessToken = decryptToken(socialAccount.accessToken);
         let fbAdAccounts: any[] = [];
         try {
-          fbAdAccounts = await getManagedAdAccounts(socialAccount.accessToken);
+          fbAdAccounts = await getManagedAdAccounts(socialAccessToken);
         } catch (err: any) {
           const isAuthError =
             err instanceof MetaAuthError ||
@@ -89,7 +91,7 @@ export async function GET(req: Request) {
           // before raising a false alarm!
           let isConfirmedDead = false;
           if (isAuthError) {
-            const isTokenAlive = await verifyFacebookAccessToken(socialAccount.accessToken);
+            const isTokenAlive = await verifyFacebookAccessToken(socialAccessToken);
             if (!isTokenAlive) {
               isConfirmedDead = true;
             } else {
@@ -232,10 +234,10 @@ export async function GET(req: Request) {
 
             try {
               const [fbCampaigns, fbAdSets, fbAds, insights] = await Promise.all([
-                getAdAccountCampaigns(adAccount.id, socialAccount.accessToken),
-                getAdAccountAdSets(adAccount.id, socialAccount.accessToken),
-                getAdAccountAds(adAccount.id, socialAccount.accessToken),
-                getAdAccountInsights(adAccount.id, socialAccount.accessToken, startDateStr, endDateStr)
+                getAdAccountCampaigns(adAccount.id, socialAccessToken),
+                getAdAccountAdSets(adAccount.id, socialAccessToken),
+                getAdAccountAds(adAccount.id, socialAccessToken),
+                getAdAccountInsights(adAccount.id, socialAccessToken, startDateStr, endDateStr)
               ]);
 
               // Ensure fallback dummy campaign exists to avoid foreign key constraint errors
@@ -595,7 +597,7 @@ export async function GET(req: Request) {
                       for (const campaignId of targetCampaignIds) {
                         // Pause campaign via Facebook Graph API
                         // POST https://graph.facebook.com/v21.0/{campaign_id}?status=PAUSED&access_token={token}
-                        const pauseUrl = `https://graph.facebook.com/v21.0/${campaignId}?status=PAUSED&access_token=${socialAccount.accessToken}`;
+                        const pauseUrl = `https://graph.facebook.com/v21.0/${campaignId}?status=PAUSED&access_token=${socialAccessToken}`;
                         const pauseRes = await fetch(pauseUrl, { method: "POST" });
                         
                         if (pauseRes.ok) {
@@ -661,8 +663,10 @@ export async function GET(req: Request) {
 
         if (!page) return; // Skip if we don't manage this page
 
+        const pageAccessToken = decryptToken(page.accessToken);
+
         try {
-          const commentsUrl = `https://graph.facebook.com/v21.0/${item.storyId}/comments?fields=id,message,from,created_time,is_hidden&limit=100&access_token=${page.accessToken}`;
+          const commentsUrl = `https://graph.facebook.com/v21.0/${item.storyId}/comments?fields=id,message,from,created_time,is_hidden&limit=100&access_token=${pageAccessToken}`;
           const commentsRes = await fetch(commentsUrl);
           if (!commentsRes.ok) return;
 
@@ -747,7 +751,7 @@ export async function GET(req: Request) {
                   const result = await moderateFacebookComment(
                     fbComment.id,
                     rule.action as "HIDE" | "DELETE",
-                    page.accessToken
+                    pageAccessToken
                   );
 
                   if (result.success) {

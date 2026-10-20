@@ -8,6 +8,7 @@ import {
   getManagedPages,
   subscribePageToWebhooks
 } from "@/app/lib/facebook";
+import { encryptToken } from "@/app/lib/encryption";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -52,12 +53,14 @@ export async function GET(req: Request) {
     // 3. Get Facebook User Profile details
     const fbProfile = await getFacebookUserProfile(longLivedToken);
 
-    // 4. Save/Update Facebook Social Account
+    // 4. Save/Update Facebook Social Account (tokens encrypted with AES-256-GCM)
+    const encryptedUserToken = encryptToken(longLivedToken);
+
     const fbSocialAccount = await db.fbSocialAccount.upsert({
       where: { id: fbProfile.id },
       update: {
         avatarUrl: fbProfile.avatarUrl,
-        accessToken: longLivedToken,
+        accessToken: encryptedUserToken,
         tokenExpiresAt,
         status: "ACTIVE",
         updatedAt: new Date()
@@ -66,7 +69,7 @@ export async function GET(req: Request) {
         id: fbProfile.id,
         name: invite.description ? `${invite.description} (${fbProfile.name})` : fbProfile.name,
         avatarUrl: fbProfile.avatarUrl,
-        accessToken: longLivedToken,
+        accessToken: encryptedUserToken,
         tokenExpiresAt,
         status: "ACTIVE",
         userId: invite.userId
@@ -114,19 +117,21 @@ export async function GET(req: Request) {
     // 7. Fetch and sync Pages, and subscribe them to Webhooks
     const pagesData = await getManagedPages(longLivedToken);
     for (const page of pagesData) {
+      const encryptedPageToken = encryptToken(page.access_token);
+
       await db.fbPage.upsert({
         where: { id: page.id },
         update: {
           name: page.name,
           avatarUrl: page.avatarUrl,
-          accessToken: page.access_token,
+          accessToken: encryptedPageToken,
           updatedAt: new Date()
         },
         create: {
           id: page.id,
           name: page.name,
           avatarUrl: page.avatarUrl,
-          accessToken: page.access_token,
+          accessToken: encryptedPageToken,
           socialAccountId: fbSocialAccount.id
         }
       });
