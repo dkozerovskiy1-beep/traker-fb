@@ -19,11 +19,12 @@
 
 ## 🛠️ 2. Технологічний стек
 
-* **Фреймворк**: [Next.js](https://nextjs.org/) (App Router, TypeScript)
+* **Фреймворк**: [Next.js](https://nextjs.org/) (App Router, TypeScript, Next.js 16)
 * **База даних**: PostgreSQL (хостинг на Supabase)
 * **ORM**: [Prisma](https://www.prisma.io/) (`@prisma/client`, `@prisma/adapter-pg`)
+* **Криптографія та Безпека**: `bcryptjs` (хешування паролів), `node:crypto` (AES-256-GCM шифрування токенів, HMAC-SHA256 валідація вебхуків), `jose` (JWT сесії)
 * **Стилізація**: Vanilla CSS / TailwindCSS / DaisyUI
-* **Інтеграції**: Meta Graph API `v20.0`, Telegram Bot API
+* **Інтеграції**: Meta Graph API `v21.0`, Telegram Bot API
 * **Хостинг та CI/CD**: [Vercel](https://vercel.com/) (Автоматичний деплой при пуші в гілку `main`)
 
 ---
@@ -35,21 +36,22 @@
 * **Основна гілка**: `main`
 * **Авто-деплой**: Будь-який push у гілку `main` автоматично викликає збірку та деплой на Vercel Production.
 
-### Крон-задачі (Vercel Crons)
-У файлі [`vercel.json`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/vercel.json) налаштовано фонову синхронізацію:
-* **Маршрут**: `/api/cron/sync`
-* **Розклад**: Запускається періодично (або викликається зовнішнім сервісом pinger).
+### Крон-задачі (Vercel Crons & GitHub Actions)
+* У файлі [`vercel.json`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/vercel.json) та [`.github/workflows/cron.yml`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/.github/workflows/cron.yml) налаштовано періодичну фонову синхронізацію:
+  * **Маршрут**: `/api/cron/sync`
+  * **Розклад**: Кожні 15 хвилин (`*/15 * * * *`).
+  * **Авторизація**: Заголовок `Authorization: Bearer <CRON_SECRET>`.
 
 ### Змінні оточення (`.env` / Vercel Environment Variables)
 * `DATABASE_URL`: Строка підключення до PostgreSQL (Supabase).
 * `FACEBOOK_APP_ID`: ID додатку розробника Facebook.
 * `FACEBOOK_APP_SECRET`: Секрет додатку Facebook (використовується для OAuth та перевірки підпису вебхуків HMAC-SHA256).
 * `FACEBOOK_REDIRECT_URI`: URI перенаправлення для OAuth (`/api/auth/facebook/callback`).
-* `APP_SECRET`: Секретний ключ для шифрування JWT-токенів та сесій.
+* `APP_SECRET`: Секретний ключ для підпису JWT-токенів та сесій.
 * `ENCRYPTION_KEY`: Секретний ключ для симетричного шифрування токенів Facebook (AES-256-GCM). Якщо не задано, використовує `APP_SECRET`.
 * `CRON_SECRET`: Секретний токен для авторизації запуску фонової синхронізації (`/api/cron/sync`).
-* `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`: Налаштування та секрет перевірки вебхуків Telegram бота.
-* `ADMIN_EMAIL` / `ADMIN_PASSWORD`: Дефолтні дані адміністратора.
+* `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`: Токен бота та секрет валідації вебхуків Telegram.
+* `ADMIN_EMAIL` / `ADMIN_PASSWORD`: Облікові дані адміністратора (підтримується зміна у Vercel з авто-міграцією в БД).
 
 ---
 
@@ -57,40 +59,54 @@
 
 Основні моделі даних у файлі [`prisma/schema.prisma`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/prisma/schema.prisma):
 
-1. **`User`**: Користувач дашборду. Зберігає налаштування сповіщень Telegram (`alertOnBans`, `alertOnRejections`, `alertOnApprovals`, `alertOnComments`) та API-ключ експорту.
-2. **`FbSocialAccount`**: Підключений Facebook профіль. Зберігає довготривалий access token (`accessToken`), термін його дії та прив'язаного користувача.
-3. **`FbAdAccount`**: Рекламний кабінет (`act_...`). Поля: `status` (`ACTIVE` / `DISABLED`), `spend`, `currency`, `timezoneName`, `lastSyncedAt`, `disabledAt`.
+1. **`User`**: Користувач дашборду. Зберігає налаштування сповіщень Telegram (`alertOnBans`, `alertOnRejections`, `alertOnApprovals`, `alertOnComments`), bcrypt-хеш пароля (`password`) та API-ключ експорту (`exportApiKey`).
+2. **`FbSocialAccount`**: Підключений Facebook профіль. Зберігає зашифрований AES-256-GCM токен (`accessToken`), термін його дії та прив'язаного користувача.
+3. **`FbAdAccount`**: Рекламний кабінет (`act_...`). Поля: `status` (`ACTIVE` / `DISABLED`), `spend`, `currency`, `timezoneName`, `lastSyncedAt`, `disabledAt`, `clientTag`.
 4. **`FbCampaign` / `FbAdSet` / `FbAd`**: Структурна ієрархія реклами Meta.
 5. **`DailyInsight`**: Щоденні агреговані метрики (витрати, покази, кліки, ліди, конверсії, країна). Унікальний індекс: `[date, adAccountId, campaignId, adsetId, adId, country]`.
-6. **`FbPage`**: Facebook Страница, прив'язана до профілю. Зберігає token для модерації коментарів.
+6. **`FbPage`**: Facebook Сторінка, прив'язана до профілю. Зберігає зашифрований AES-256-GCM токен для модерації коментарів.
 7. **`FbComment`**: Коментарі на рекламних постах. Поля: `status` (`VISIBLE`, `HIDDEN`, `DELETED`).
 8. **`AutomationRule`**: Правило авто-зупинки (наприклад, зупинити кампанію, якщо spend > X чи CPL > Y).
-9. **`ModerationRule`**: Правило модерації коментарів (список стоп-слів або `HIDE_ALL`).
+9. **`ModerationRule`**: Правило модерації коментарів (список стоп-слів, посилання, Telegram-юзернейми або `HIDE_ALL`).
+10. **`InviteLink`**: Одноразові або багаторазові інвайт-посилання для підключення клієнтських соців.
 
 ---
 
 ## 🔄 5. Логіка Роботи Ключових Модулів
 
 ### 1. Додавання Facebook Акаунтів (`/api/auth/facebook/callback`)
-* Користувач проходить OAuth авторизацію через Facebook.
+* Користувач або клієнт переходить за інвайт-посиланням та проходить OAuth авторизацію через Facebook.
 * Сервер отримує короткоживучий токен та обмінює його на **Long-Lived Access Token** (дійсний 60 днів).
-* Запитує список доступних рекламних кабінетів через `/me/adaccounts` та зберігає їх у БД.
+* Токен **шифрується алгоритмом AES-256-GCM** перед записом у базу даних.
+* Запитує список доступних рекламних кабінетів через `/me/adaccounts` та сторінок через `/me/accounts`.
 
 ### 2. Крон-Синхронізація (`/api/cron/sync`)
-Виконується у декілька фаз:
-1. **Отримання акаунтів**: Бере всі активні `FbSocialAccount`.
-2. **Оновлення статусів кабінетів**: Запитує `/me/adaccounts`. 
+Виконується кожні 15 хвилин:
+1. **Отримання акаунтів**: Бере всі `FbSocialAccount` у статусі `ACTIVE` та `NEEDS_REAUTH`.
+2. **Розшифрування токенів "на льоту"**: Сервер прозоро розшифровує токени для звернень до Graph API. Якщо токен збережений у старому відкритому форматі — автоматично підтримується зворотна сумісність.
+3. **Оновлення статусів кабінетів**: Запитує `/me/adaccounts`. 
    * `account_status: 1` ➔ `ACTIVE`
    * `account_status: 2, 100, 101` ➔ `DISABLED`
    * *Увага*: Помилки мережі чи тимчасові таймаути Meta API **НЕ** повинні змінювати статус кабінету на `DISABLED`.
-3. **Синхронізація об'єктів та метрик**: Запитує кампанії, адсети, оголошення та щоденні `insights` за поточний період і зберігає у `DailyInsight`.
-4. **Перевірка Automation Rules**: Якщо для кабінету є активні правила, розраховує сьогоднішній spend/CPL та автоматично вимикає кампанію в Meta API при порушенні лімітів.
-5. **Модерація коментарів**: Отримує коментарі під активними постами та застосовує `ModerationRule` (приховує або видаляє небажані коментарі).
-6. **Telegram-сповіщення**: Надсилає алерти про бани кабінетів, відхилені оголошення, модерацію оголошень чи коментарів.
+4. **Захист від хибних чекпоінтів**: Перед тим, як помітити соц як `NEEDS_REAUTH`, виконується подвійна перевірка через легкий ендпоінт `/me?fields=id`. Помилки лімітів (17, 613) та мікро-збої Meta (1, 2) не викликають хибних тривог.
+5. **Синхронізація метрик**: Запитує кампанії, адсети, оголошення та щоденні `insights` із розбивкою по країнах (`breakdowns=country`).
+6. **Правила автоматизації (Automation Rules)**: Зупиняє кампанії в Meta API при перевищенні лімітів витрат або CPL.
+7. **Модерація коментарів**: Отримує коментарі під активними story posts і приховує/видаляє небажані через Facebook Graph API.
+8. **Telegram-сповіщення**: Надсилає алерти про бани кабінетів, відхилені оголошення, модерацію оголошень чи коментарів.
 
-### 3. Експортний API (`/api/v1/export/insights`)
+### 3. Безпека та Захист Даних (Security Architecture)
+* **Паролі користувачів**: Хешуються через `bcrypt` (10 раундів солі). При вході реалізовано автоматичне безшовне оновлення старих паролів до bcrypt-хешу.
+* **Шифрування токенів Facebook (Data-at-Rest Encryption)**: Токени доступу соців та сторінок шифруються через `AES-256-GCM` ([`app/lib/encryption.ts`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/app/lib/encryption.ts)). Навіть при повному витоку бази даних токени залишаються недоступними без ключа `ENCRYPTION_KEY`.
+* **JWT Сесії**: Підписуються секретом `APP_SECRET` / `JWT_SECRET` і передаються в `HttpOnly`, `SameSite: Lax`, `Secure` куках. При зміні `ADMIN_EMAIL` / `ADMIN_PASSWORD` у Vercel дані адміна в базі автоматично синхронізуються без втрати зв'язків з кабінетами.
+* **Верифікація вебхуків**:
+  * Facebook: Валідація підпису `x-hub-signature-256` за допомогою `crypto.timingSafeEqual` та `FACEBOOK_APP_SECRET`.
+  * Telegram: Валідація `x-telegram-bot-api-secret-token`.
+* **Захист від BOLA / IDOR**: Усі мутації (оновлення тегів, назв соців, видалення правил, модерація) суворо перевіряють приналежність ресурсу поточному `userId`.
+* **HTTP Security Headers**: Захист від Clickjacking (`X-Frame-Options: DENY`), блокування MIME-sniffing (`X-Content-Type-Options: nosniff`), примусовий HTTPS (`Strict-Transport-Security`).
+
+### 4. Експортний API (`/api/v1/export/insights`)
 * Дозволяє отримувати метрики у форматі JSON або CSV для зовнішніх систем.
-* Авторизація здійснюється через URL параметр `?key=YOUR_EXPORT_API_KEY` або заголовок `X-Export-Api-Key`.
+* Авторизація здійснюється через URL параметр `?key=YOUR_EXPORT_API_KEY` або заголовок `X-Export-Api-Key` із суворою ізоляцією даних по `userId`.
 
 ---
 
@@ -98,9 +114,15 @@
 
 1. **Обробка статусів рекламних кабінетів**:
    * Ніколи не переводити кабінет у статус `DISABLED` в блоці `catch` при тимчасових помилках запиту метрик! Статус `DISABLED` присвоюється **тільки** на основі офіційного поля `account_status` від Meta API.
-2. **Оновлення схеми Prisma**:
+2. **Шифрування токенів**:
+   * Усі нові токени Facebook при збереженні в базу обов'язково пропускати через `encryptToken(...)`. При зверненнях до Meta API використовувати `decryptToken(...)`.
+3. **Хешування паролів**:
+   * Ніколи не зберігати паролі відкритим текстом. Завжди використовувати `hashPassword(...)` перед збереженням.
+4. **Контроль доступу (IDOR)**:
+   * Будь-які роути оновлення чи видалення обов'язково повинні містити перевірку власності об'єкта через `userId: user.id`.
+5. **Оновлення схеми Prisma**:
    * Після будь-якої зміни в `prisma/schema.prisma` обов'язково виконувати `npx prisma generate`.
-3. **Перевірка типів перед коммітом**:
+6. **Перевірка типів перед коммітом**:
    * Завжди запускати `npx tsc --noEmit` перед відправкою коду в репозиторій, щоб уникнути помилок збірки на Vercel.
 
 ---
@@ -112,18 +134,35 @@
 ├── app/
 │   ├── (dashboard)/       # Інтерфейс дашборду (Аналітика, Акаунти, Коментарі)
 │   ├── api/
-│   │   ├── auth/          # Авторизація та Facebook OAuth callback
-│   │   ├── cron/sync/     # Крон фонової синхронізації метрик та коментарів
-│   │   ├── v1/export/     # Зовнішній API експорту метрик
-│   │   └── webhooks/      # Telegram Webhook обробник
-│   └── lib/
-│       ├── db.ts          # Ініціалізація Prisma Client з адаптером PostgreSQL
-│       ├── facebook.ts    # Інтеграція з Meta Graph API
-│       └── telegram.ts    # Функції відправки Telegram сповіщень
+│   │   ├── accounts/      # Керування рекламними кабінетами та тегами (IDOR-захищено)
+│   │   ├── auth/          # Авторизація (bcrypt), реєстрація та Facebook OAuth callback
+│   │   ├── comments/      # Модерація коментарів (ручна та автоматична)
+│   │   ├── cron/sync/     # Крон фонової синхронізації метрик, статусів та коментарів
+│   │   ├── invite/        # Створення та видалення інвайт-посилань
+│   │   ├── rules/         # Правила автоматизації зупинки кампаній
+│   │   ├── user/          # Налаштування користувача (Telegram, Export Key)
+│   │   ├── v1/export/     # Зовнішній захищений API експорту метрик
+│   │   └── webhooks/      # Захищені вебхуки (Facebook HMAC, Telegram secret token)
+│   ├── lib/
+│   │   ├── auth.ts        # JWT сесії та отримання поточного користувача
+│   │   ├── crypto.ts      # Допоміжні функції шифрування
+│   │   ├── dates.ts       # Робота з датами в часовому поясі GMT+3 (Київ)
+│   │   ├── db.ts          # Ініціалізація Prisma Client з адаптером PostgreSQL
+│   │   ├── encryption.ts  # AES-256-GCM шифрування/розшифрування токенів Facebook
+│   │   ├── facebook.ts    # Інтеграція з Meta Graph API v21.0
+│   │   ├── passwords.ts   # Хешування та перевірка паролів (bcryptjs)
+│   │   └── telegram.ts    # Функції відправки Telegram сповіщень
+│   ├── login/             # Сторінка авторизації
+│   ├── register/          # Сторінка реєстрації
+│   └── invite/[id]/       # Публічна сторінка підключення клієнтського Facebook
 ├── prisma/
-│   ├── schema.prisma      # Схема бази даних
+│   ├── schema.prisma      # Схема бази даних PostgreSQL
 │   └── config.ts          # Конфігурація Prisma
+├── proxy.ts               # Глобальний middleware безпеки та контролю доступу (Next.js 16)
+├── next.config.ts         # Конфігурація Next.js та HTTP Security Headers
 ├── PROJECT_OVERVIEW.md    # Повна системна документація
 ├── AGENTS.md              # Інструкція для ШІ-агентів
-└── vercel.json            # Налаштування Vercel Cron
+├── vercel.json            # Налаштування Vercel Cron
+└── .github/workflows/
+    └── cron.yml           # Фоновий GitHub Actions крон-воркфлоу
 ```
