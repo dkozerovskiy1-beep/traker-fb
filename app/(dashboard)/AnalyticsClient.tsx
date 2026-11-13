@@ -106,6 +106,7 @@ function StatusBadge({ status }: { status: string }) {
     DISAPPROVED: { label: "Відхилено", cls: "badge-error" },
     PENDING_REVIEW: { label: "На модерації", cls: "badge-warning" },
     DISABLED: { label: "Забанено", cls: "badge-error" },
+    UNSETTLED: { label: "Неоплачено (Білінг)", cls: "badge-warning" },
     ARCHIVED: { label: "В архіві", cls: "badge-secondary" },
     DELETED: { label: "Видалено", cls: "badge-secondary" },
     CAMPAIGN_PAUSED: { label: "Пауза кампанії", cls: "badge-secondary" },

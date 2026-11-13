@@ -895,8 +895,8 @@ export default function AccountsClient({
                                           <span style={{ fontWeight: "600" }}>${ad.spend.toFixed(2)}</span>
                                         </td>
                                         <td>
-                                          <span className={`badge ${ad.status === "ACTIVE" ? "badge-success" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
-                                            {ad.status === "ACTIVE" ? "Активний" : "Деактивовано"}
+                                          <span className={`badge ${ad.status === "ACTIVE" ? "badge-success" : ad.status === "UNSETTLED" ? "badge-warning" : "badge-error"}`} style={{ fontSize: "10px", padding: "2px 6px" }}>
+                                            {ad.status === "ACTIVE" ? "Активний" : ad.status === "UNSETTLED" ? "Неоплачений (Білінг)" : "Деактивовано"}
                                           </span>
                                         </td>
                                         <td style={{ textAlign: "right" }}>

@@ -155,20 +155,89 @@ export async function executeSync(options: SyncOptions = {}): Promise<SyncResult
       await Promise.all(
         fbAdAccounts.map(async (fbAdAcc) => {
           const oldAdAccount = socialAccount.adAccounts.find(ad => ad.id === fbAdAcc.id);
-          // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 100 = PENDING_CLOSURE, 101 = CLOSED
+          // account_status:
+          // 1 = ACTIVE
+          // 2 = DISABLED
+          // 3 = UNSETTLED (Payment declined / failed billing / balance overdue)
+          // 7 = PENDING_RISK_REVIEW
+          // 9 = IN_GRACE_PERIOD (Failed payment attempt, in grace period)
+          // 100 = PENDING_CLOSURE
+          // 101 = CLOSED
+          // disable_reason: 3 = RISK_PAYMENT (billing failure)
+          const isBillingIssue = fbAdAcc.account_status === 3 || fbAdAcc.account_status === 9 || (fbAdAcc.account_status === 2 && fbAdAcc.disable_reason === 3);
           const isMetaDisabled = fbAdAcc.account_status === 2 || fbAdAcc.account_status === 100 || fbAdAcc.account_status === 101;
-          const newStatus = isMetaDisabled ? "DISABLED" : "ACTIVE";
 
+          let newStatus = "ACTIVE";
+          if (isBillingIssue) {
+            newStatus = "UNSETTLED";
+          } else if (isMetaDisabled) {
+            newStatus = "DISABLED";
+          }
+
+          const accountUser = (socialAccount as any).user;
+          const cabinetTag = oldAdAccount?.clientTag || socialAccount.clientTag;
+          const tagText = cabinetTag ? `\n• <b>Тег:</b> ${cabinetTag}` : "";
+
+          // Format balance if available (Meta returns balance in currency cents, e.g. 5000 = $50.00)
+          let balanceText = "";
+          if (fbAdAcc.balance != null) {
+            const balNum = parseFloat(String(fbAdAcc.balance));
+            if (!isNaN(balNum) && balNum > 0) {
+              balanceText = `\n• <b>Заборгованість:</b> ${(balNum / 100).toFixed(2)} ${fbAdAcc.currency || "USD"}`;
+            }
+          }
+
+          // 1. Alert on Billing Failure (UNSETTLED / Failed Payment)
+          if (isBillingIssue && oldAdAccount?.status !== "UNSETTLED") {
+            if (accountUser && accountUser.telegramChatId && (accountUser.alertOnBans ?? true)) {
+              await sendTelegramAlert(
+                `💳 <b>[VartaFlow Alert] НЕВДАЛИЙ БІЛІНГ META / ПОМИЛКА ОПЛАТИ</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)${tagText}\n` +
+                `• <b>Статус:</b> UNSETTLED (Неоплачена заборгованість)${balanceText}\n` +
+                `• <b>Причина:</b> Meta не змогла списати кошти з платіжної картки. Показ реклами зупинено або під загрозою зупинки.\n\n` +
+                `⚠️ <i>Перевірте баланс/ліміти картки в Ads Manager та проведіть платіж вручну («Pay Now / Сплатити зараз»).</i>`,
+                accountUser.telegramChatId
+              ).catch(e => console.error("Failed to send telegram billing alert:", e));
+            }
+          }
+
+          // 2. Alert on Billing Restored (UNSETTLED -> ACTIVE)
+          if (oldAdAccount && oldAdAccount.status === "UNSETTLED" && newStatus === "ACTIVE") {
+            if (accountUser && accountUser.telegramChatId && (accountUser.alertOnBans ?? true)) {
+              await sendTelegramAlert(
+                `✅ <b>[VartaFlow Alert] БІЛІНГ УСПІШНО СПЛАЧЕНО</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)${tagText}\n` +
+                `• <b>Статус:</b> ACTIVE (Кабінет активний, показ реклами відновлено!)`,
+                accountUser.telegramChatId
+              ).catch(e => console.error("Failed to send telegram billing restored alert:", e));
+            }
+          }
+
+          // 3. Alert on Policy Ban (ACTIVE -> DISABLED)
           if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
-            const accountUser = (socialAccount as any).user;
             if (accountUser && accountUser.telegramChatId && accountUser.alertOnBans) {
               await sendTelegramAlert(
                 `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
                 `• <b>Профіль:</b> ${socialAccount.name}\n` +
-                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
+                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)${tagText}\n` +
                 `• <b>Статус:</b> DISABLED (Деактивовано)`,
                 accountUser.telegramChatId
               ).catch(e => console.error("Failed to send telegram ban alert:", e));
+            }
+          }
+
+          // 4. Alert on Ban Restored (DISABLED -> ACTIVE)
+          if (oldAdAccount && oldAdAccount.status === "DISABLED" && newStatus === "ACTIVE") {
+            if (accountUser && accountUser.telegramChatId && accountUser.alertOnBans) {
+              await sendTelegramAlert(
+                `✅ <b>[VartaFlow Alert] КАБІНЕТ РОЗБЛОКОВАНО</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)${tagText}\n` +
+                `• <b>Статус:</b> ACTIVE (Кабінет знову активний!)`,
+                accountUser.telegramChatId
+              ).catch(e => console.error("Failed to send telegram ban restored alert:", e));
             }
           }
 
@@ -366,14 +435,18 @@ export async function executeSync(options: SyncOptions = {}): Promise<SyncResult
                 }
 
                 if (shouldAlertRejection) {
+                  const reasonFormatted = ad.rejection_reason
+                    ? `\n\n<b>Причина відхилення:</b>\n${ad.rejection_reason}`
+                    : `\n• <b>Причина:</b> Причина не вказана Meta API`;
+
                   telegramAlertPromises.push(
                     sendTelegramAlert(
                       `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
                       `• <b>Профіль:</b> ${socialAccount.name}\n` +
                       `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
                       `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
-                      `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
-                      `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`,
+                      `• <b>Статус:</b> DISAPPROVED (Відхилено)` +
+                      reasonFormatted,
                       user.telegramChatId
                     ).catch(err => console.error("Failed to send telegram alert:", err))
                   );

@@ -15,7 +15,9 @@ export interface FbAdAccountData {
   name: string;
   currency: string;
   timezone_name: string;
-  account_status: number; // 1 = ACTIVE, 2 = DISABLED, etc.
+  account_status: number; // 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 7 = PENDING_RISK_REVIEW, 9 = IN_GRACE_PERIOD, etc.
+  disable_reason?: number;
+  balance?: string | number;
   amount_spent: string;
 }
 
@@ -172,7 +174,7 @@ export async function verifyFacebookAccessToken(accessToken: string): Promise<bo
  * Fetches all ad accounts managed by this user.
  */
 export async function getManagedAdAccounts(accessToken: string): Promise<FbAdAccountData[]> {
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/me/adaccounts?fields=id,name,currency,timezone_name,account_status,amount_spent&limit=200&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/me/adaccounts?fields=id,name,currency,timezone_name,account_status,disable_reason,balance,amount_spent&limit=200&access_token=${accessToken}`;
 
   const res = await fetch(url);
   if (!res.ok) {
@@ -509,9 +511,103 @@ export interface FbAdData {
   created_time?: string;
 }
 
+const META_POLICY_LABELS: Record<string, string> = {
+  COMMUNITY_STANDARDS: "Порушення норм спільноти Meta",
+  UNACCEPTABLE_BUSINESS_PRACTICES: "Неприйнятні бізнес-моделі / введення в оману",
+  MISLEADING_CLAIMS: "Оманливі твердження / нереалістичні обіцянки",
+  SENSITIVE_CONTENT: "Чутливий або шокуючий контент",
+  PERSONAL_ATTRIBUTES: "Згадування особистих характеристик (здоров'я, вік, статус)",
+  CIRCUMVENTING_SYSTEMS: "Спроба обходу систем модерації (редиректи, клоакінг)",
+  NON_FUNCTIONAL_LANDING_PAGE: "Непрацююча цільова сторінка (помилка на сайті/ленді)",
+  ADULT_CONTENT: "Контент для дорослих / еротичний підтекст",
+  FINANCIAL_PRODUCTS_SERVICES: "Фінансові продукти та послуги / крипта / кредити",
+  DISCRIMINATORY_PRACTICES: "Дискримінаційні практики",
+  WEAPONS_AMMUNITION_EXPLOSIVES: "Зброя, боєприпаси або вибухівка",
+  TOBACCO_RELATED_PRODUCTS: "Тютюнові вироби або вейпи",
+  HEALTH_WELLNESS: "Товари для здоров'я або схуднення",
+  MULTI_LEVEL_MARKETING: "Мережевий маркетинг / сумнівний дохід",
+  BODY_PARTS: "Демонстрація частин тіла крупним планом (до/після)",
+  CLICKBAIT: "Клікбейтні заголовки або приховані елементи",
+  PROFANITY: "Ненормативна лексика або агресивний текст",
+  INTELLECTUAL_PROPERTY: "Порушення прав інтелектуальної власності"
+};
+
+function formatPolicyName(policyKey: string): string {
+  const cleanKey = policyKey.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  const ukrLabel = META_POLICY_LABELS[cleanKey];
+  return ukrLabel ? `${ukrLabel} (${policyKey})` : policyKey;
+}
+
+export function parseAdRejectionReason(ad: any): string | null {
+  // 1. Check ad_review_feedback (Meta's primary policy feedback)
+  if (ad.ad_review_feedback && typeof ad.ad_review_feedback === "object") {
+    const feedbackList: string[] = [];
+
+    const globalFeedback = ad.ad_review_feedback.global;
+    if (globalFeedback && typeof globalFeedback === "object") {
+      for (const [key, val] of Object.entries(globalFeedback)) {
+        const formattedKey = formatPolicyName(key);
+        if (typeof val === "string" && val.trim()) {
+          feedbackList.push(`${formattedKey}: ${val.trim()}`);
+        } else {
+          feedbackList.push(formattedKey);
+        }
+      }
+    }
+
+    const placementFeedback = ad.ad_review_feedback.placement_specific;
+    if (placementFeedback && typeof placementFeedback === "object") {
+      for (const [placement, plObj] of Object.entries(placementFeedback)) {
+        if (plObj && typeof plObj === "object") {
+          for (const [key, val] of Object.entries(plObj)) {
+            const formattedKey = formatPolicyName(key);
+            const placementName = placement.charAt(0).toUpperCase() + placement.slice(1);
+            if (typeof val === "string" && val.trim()) {
+              feedbackList.push(`[${placementName}] ${formattedKey}: ${val.trim()}`);
+            } else {
+              feedbackList.push(`[${placementName}] ${formattedKey}`);
+            }
+          }
+        }
+      }
+    }
+
+    if (feedbackList.length > 0) {
+      return feedbackList.join("\n");
+    }
+  }
+
+  // 2. Check issues_info
+  if (ad.issues_info && Array.isArray(ad.issues_info)) {
+    const issues = ad.issues_info
+      .map((item: any) => {
+        const summary = item.error_summary ? item.error_summary : "";
+        const message = item.error_message || "";
+        return [summary, message].filter(Boolean).join(": ");
+      })
+      .filter(Boolean);
+
+    if (issues.length > 0) {
+      return issues.join("\n");
+    }
+  }
+
+  // 3. Fallback to recommendations
+  if (ad.recommendations && Array.isArray(ad.recommendations)) {
+    const recs = ad.recommendations
+      .map((r: any) => r.message || r.title)
+      .filter(Boolean);
+    if (recs.length > 0) {
+      return recs.join("; ");
+    }
+  }
+
+  return null;
+}
+
 export async function getAdAccountAds(adAccountId: string, accessToken: string): Promise<FbAdData[]> {
   const filter = JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "PENDING_REVIEW", "DISAPPROVED", "IN_PROCESS", "WITH_ERRORS", "CAMPAIGN_PAUSED", "ADSET_PAUSED"] }]);
-  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},recommendations,creative{id,effective_object_story_id},created_time&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
+  const url = `https://graph.facebook.com/${FB_API_VERSION}/${adAccountId}/ads?fields=id,name,status,effective_status,adset{id},ad_review_feedback,issues_info,recommendations,creative{id,effective_object_story_id},created_time&limit=1000&filtering=${encodeURIComponent(filter)}&access_token=${accessToken}`;
   const res = await fetch(url);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -520,9 +616,7 @@ export async function getAdAccountAds(adAccountId: string, accessToken: string):
   }
   const data = await res.json();
   return (data.data || []).map((ad: any) => {
-    const rejectionReason = ad.recommendations && Array.isArray(ad.recommendations)
-      ? ad.recommendations.map((r: any) => r.message).join("; ")
-      : null;
+    const rejectionReason = parseAdRejectionReason(ad);
 
     return {
       id: ad.id,

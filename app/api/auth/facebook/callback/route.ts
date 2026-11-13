@@ -88,9 +88,10 @@ export async function GET(req: Request) {
     // 6. Fetch and sync Ad Accounts
     const adAccountsData = await getManagedAdAccounts(longLivedToken);
     for (const adAccount of adAccountsData) {
-      // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 100 = PENDING_CLOSURE, 101 = CLOSED
+      // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 9 = IN_GRACE_PERIOD, 100 = PENDING_CLOSURE, 101 = CLOSED
+      const isBillingIssue = adAccount.account_status === 3 || adAccount.account_status === 9;
       const isMetaDisabled = adAccount.account_status === 2 || adAccount.account_status === 100 || adAccount.account_status === 101;
-      const status = isMetaDisabled ? "DISABLED" : "ACTIVE";
+      const status = isBillingIssue ? "UNSETTLED" : (isMetaDisabled ? "DISABLED" : "ACTIVE");
       
       await db.fbAdAccount.upsert({
         where: { id: adAccount.id },
