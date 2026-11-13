@@ -21,6 +21,9 @@ import {
   roundCurrency
 } from "@/app/lib/dates";
 
+export const maxDuration = 300;
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   // 1. Authorize cron request or logged-in user manual sync
   const user = await getLoggedInUser().catch(() => null);
