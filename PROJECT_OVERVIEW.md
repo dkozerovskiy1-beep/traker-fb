@@ -36,11 +36,11 @@
 * **Основна гілка**: `main`
 * **Авто-деплой**: Будь-який push у гілку `main` автоматично викликає збірку та деплой на Vercel Production.
 
-### Крон-задачі (Vercel Crons & GitHub Actions)
-* У файлі [`vercel.json`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/vercel.json) та [`.github/workflows/cron.yml`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/.github/workflows/cron.yml) налаштовано періодичну фонову синхронізацію:
-  * **Маршрут**: `/api/cron/sync`
+### Крон-задачі (Автономний GitHub Actions Runner)
+* У файлі [`.github/workflows/cron.yml`](file:///Users/dkozerovskiy/Documents/ФАЙЛИ/Бізнес/Проекти/AskMyProffit/Трекер%20ФБ/.github/workflows/cron.yml) налаштовано автономну періодичну фонову синхронізацію:
+  * **Виконання**: Автономний runner GitHub Actions (`scripts/run-sync.ts`), який підключається до бази даних та Facebook Graph API напряму (повністю оминаючи Vercel CPU).
   * **Розклад**: Кожні 15 хвилин (`*/15 * * * *`).
-  * **Авторизація**: Заголовок `Authorization: Bearer <CRON_SECRET>`.
+  * **Ручний запуск**: Ручна синхронізація також доступна через кнопку "Синхронізувати" в інтерфейсі трекера (`/api/accounts/sync-now`).
 
 ### Змінні оточення (`.env` / Vercel Environment Variables)
 * `DATABASE_URL`: Строка підключення до PostgreSQL (Supabase).

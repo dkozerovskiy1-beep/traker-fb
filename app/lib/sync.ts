@@ -1,0 +1,784 @@
+import { db } from "@/app/lib/db";
+import {
+  getAdAccountInsights,
+  getManagedAdAccounts,
+  getAdAccountCampaigns,
+  getAdAccountAdSets,
+  getAdAccountAds,
+  moderateFacebookComment,
+  MetaAuthError,
+  verifyFacebookAccessToken
+} from "@/app/lib/facebook";
+import { decryptToken } from "@/app/lib/encryption";
+import { sendTelegramAlert } from "@/app/lib/telegram";
+import {
+  getKyivDateString,
+  getKyivTodayStr,
+  parseKyivDateToUTC,
+  roundCurrency
+} from "@/app/lib/dates";
+
+export interface SyncOptions {
+  daysToSync?: number;
+  skipComments?: boolean;
+  userId?: string;
+}
+
+export interface SyncResult {
+  success: boolean;
+  syncedAccounts: number;
+  syncedCampaigns: number;
+  triggeredRules: number;
+  syncedComments: number;
+  moderatedComments: number;
+}
+
+export async function executeSync(options: SyncOptions = {}): Promise<SyncResult> {
+  const daysToSync = options.daysToSync || 3;
+  const skipComments = !!options.skipComments;
+  const targetUserId = options.userId;
+
+  const endDateStr = getKyivTodayStr();
+  const syncStartDate = new Date();
+  syncStartDate.setTime(syncStartDate.getTime() - (daysToSync - 1) * 24 * 60 * 60 * 1000);
+  const startDateStr = getKyivDateString(syncStartDate);
+
+  // 1. Fetch active or reauth-needed Facebook Social Accounts (filtered to user if specified)
+  const activeSocialAccounts = await db.fbSocialAccount.findMany({
+    where: {
+      status: { in: ["ACTIVE", "NEEDS_REAUTH"] },
+      ...(targetUserId ? { userId: targetUserId } : {})
+    },
+    include: { 
+      adAccounts: true,
+      user: true
+    }
+  });
+
+  let syncedAccountsCount = 0;
+  let syncedCampaignsCount = 0;
+  let triggeredRulesCount = 0;
+  const allStoryIdsRaw: { storyId: string; pageId: string }[] = [];
+
+  // Parallelize processing of all active social accounts
+  await Promise.all(
+    activeSocialAccounts.map(async (socialAccount) => {
+      const socialAccessToken = decryptToken(socialAccount.accessToken);
+      let fbAdAccounts: any[] = [];
+      try {
+        fbAdAccounts = await getManagedAdAccounts(socialAccessToken);
+      } catch (err: any) {
+        const isAuthError =
+          err instanceof MetaAuthError ||
+          err.code === 190 ||
+          err.code === 102 ||
+          (typeof err.message === "string" && (
+            err.message.includes("Session has been invalidated") ||
+            err.message.includes("Error validating access token") ||
+            err.message.includes("The access token could not be decrypted") ||
+            err.message.includes("checkpoint")
+          ));
+
+        // Double check: if it looks like an auth error, verify if user token (/me) is really dead
+        // before raising a false alarm!
+        let isConfirmedDead = false;
+        if (isAuthError) {
+          const isTokenAlive = await verifyFacebookAccessToken(socialAccessToken);
+          if (!isTokenAlive) {
+            isConfirmedDead = true;
+          } else {
+            console.warn(
+              `Temporary ad accounts fetch error for socialAccount ${socialAccount.name} (${socialAccount.id}), but user token is still valid. Skipping false alarm.`
+            );
+          }
+        }
+
+        if (isConfirmedDead) {
+          console.error(`Confirmed Meta auth error for socialAccount ${socialAccount.name} (${socialAccount.id}):`, err.message);
+
+          // Alert only once when transitioning from ACTIVE to NEEDS_REAUTH
+          if (socialAccount.status === "ACTIVE") {
+            await db.fbSocialAccount.update({
+              where: { id: socialAccount.id },
+              data: { status: "NEEDS_REAUTH" }
+            }).catch(() => {});
+
+            const accountUser = (socialAccount as any).user;
+            if (accountUser && accountUser.telegramChatId) {
+              const subcode = err.subcode;
+              let reasonText = "Сесію Facebook анульовано Meta (виліт на чекпоінт або підозріла активність).";
+              if (subcode === 460) {
+                reasonText = "Профіль вилетів на чекпоінт (Security Checkpoint) або змінено пароль.";
+              } else if (subcode === 463) {
+                reasonText = "Термін дії довготривалого токена минув.";
+              } else if (subcode === 458) {
+                reasonText = "Дозволи для додатку було відкликано у Facebook.";
+              }
+
+              await sendTelegramAlert(
+                `🚨 <b>[VartaFlow Alert] СОЦ-ПРОФІЛЬ ВИЛЕТІВ НА ЧЕК!</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>ID:</b> <code>${socialAccount.id}</code>\n` +
+                `• <b>Тег:</b> ${socialAccount.clientTag || "Не вказано"}\n` +
+                `• <b>Причина:</b> ${reasonText}\n\n` +
+                `⚠️ <i>Синхронізацію витрат за цим профілем призупинено. Пройдіть перевірку у Facebook та підключіть профіль повторно через інвайт-посилання у трекері.</i>`,
+                accountUser.telegramChatId
+              ).catch(e => console.error("Failed to send telegram checkpoint alert:", e));
+            }
+          }
+        } else {
+          console.error(`Failed to fetch latest ad accounts for socialAccount ${socialAccount.id} (${socialAccount.name}):`, err.message || err);
+        }
+        return;
+      }
+
+      // If previously NEEDS_REAUTH, but now succeeded: restore ACTIVE status and notify!
+      if (socialAccount.status === "NEEDS_REAUTH") {
+        await db.fbSocialAccount.update({
+          where: { id: socialAccount.id },
+          data: { status: "ACTIVE" }
+        }).catch(() => {});
+
+        const accountUser = (socialAccount as any).user;
+        if (accountUser && accountUser.telegramChatId) {
+          await sendTelegramAlert(
+            `✅ <b>[VartaFlow Alert] СОЦ-ПРОФІЛЬ ВІДНОВЛЕНО!</b>\n\n` +
+            `• <b>Профіль:</b> ${socialAccount.name}\n` +
+            `• <b>ID:</b> <code>${socialAccount.id}</code>\n` +
+            `• <b>Статус:</b> Токен дійсний, синхронізацію витрат успішно відновлено!`,
+            accountUser.telegramChatId
+          ).catch(e => console.error("Failed to send telegram restored alert:", e));
+        }
+      }
+
+      // Parallelize processing of all managed ad accounts for this social account
+      await Promise.all(
+        fbAdAccounts.map(async (fbAdAcc) => {
+          const oldAdAccount = socialAccount.adAccounts.find(ad => ad.id === fbAdAcc.id);
+          // account_status: 1 = ACTIVE, 2 = DISABLED, 3 = UNSETTLED, 100 = PENDING_CLOSURE, 101 = CLOSED
+          const isMetaDisabled = fbAdAcc.account_status === 2 || fbAdAcc.account_status === 100 || fbAdAcc.account_status === 101;
+          const newStatus = isMetaDisabled ? "DISABLED" : "ACTIVE";
+
+          if (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED") {
+            const accountUser = (socialAccount as any).user;
+            if (accountUser && accountUser.telegramChatId && accountUser.alertOnBans) {
+              await sendTelegramAlert(
+                `⚠️ <b>[VartaFlow Alert] РЕКЛАМНИЙ КАБІНЕТ ЗАБАНЕНО</b>\n\n` +
+                `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                `• <b>Кабінет:</b> ${fbAdAcc.name || fbAdAcc.id} (ID: <code>${fbAdAcc.id}</code>)\n` +
+                `• <b>Статус:</b> DISABLED (Деактивовано)`,
+                accountUser.telegramChatId
+              ).catch(e => console.error("Failed to send telegram ban alert:", e));
+            }
+          }
+
+          // Track disabledAt date when transitioning to DISABLED
+          const disabledAtValue = (oldAdAccount && oldAdAccount.status === "ACTIVE" && newStatus === "DISABLED")
+            ? new Date()
+            : (newStatus === "ACTIVE" ? null : (oldAdAccount as any)?.disabledAt || null);
+
+          const adAccount = await db.fbAdAccount.upsert({
+            where: { id: fbAdAcc.id },
+            update: {
+              name: fbAdAcc.name || `Ad Account ${fbAdAcc.id}`,
+              currency: fbAdAcc.currency || "USD",
+              timezoneName: fbAdAcc.timezone_name || "UTC",
+              status: newStatus,
+              socialAccountId: socialAccount.id,
+              ...(disabledAtValue !== undefined ? { disabledAt: disabledAtValue } : {})
+            },
+            create: {
+              id: fbAdAcc.id,
+              name: fbAdAcc.name || `Ad Account ${fbAdAcc.id}`,
+              currency: fbAdAcc.currency || "USD",
+              timezoneName: fbAdAcc.timezone_name || "UTC",
+              status: newStatus,
+              socialAccountId: socialAccount.id,
+              ...(newStatus === "DISABLED" ? { disabledAt: new Date() } : {})
+            }
+          });
+
+          // SMART OPTIMIZATION TO PREVENT META GRAPH API 400 ERRORS & RATE LIMIT REJECTIONS:
+          // When an account is disabled by Meta, Meta continues settling final delayed spend for up to 3 days (72h).
+          // We allow syncing disabled accounts for 3 days after disabledAt to catch final finalized spend,
+          // then skip them afterwards to save API rate limits.
+          const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+          const isRecentlyDisabled =
+            oldAdAccount?.disabledAt != null &&
+            (Date.now() - new Date(oldAdAccount.disabledAt).getTime()) < THREE_DAYS_MS;
+
+          const isAlreadySyncedDisabled =
+            newStatus === "DISABLED" &&
+            oldAdAccount &&
+            oldAdAccount.status === "DISABLED" &&
+            !isRecentlyDisabled &&
+            oldAdAccount.lastSyncedAt != null;
+
+          const isZeroSpendDisabled = newStatus === "DISABLED" && parseFloat(fbAdAcc.amount_spent || "0") === 0;
+
+          if (isAlreadySyncedDisabled || isZeroSpendDisabled) {
+            await db.fbAdAccount.update({
+              where: { id: adAccount.id },
+              data: { lastSyncedAt: new Date() }
+            }).catch(() => {});
+            return; // Stop processing old disabled account to save API calls
+          }
+
+          try {
+            const [fbCampaigns, fbAdSets, fbAds, insights] = await Promise.all([
+              getAdAccountCampaigns(adAccount.id, socialAccessToken),
+              getAdAccountAdSets(adAccount.id, socialAccessToken),
+              getAdAccountAds(adAccount.id, socialAccessToken),
+              getAdAccountInsights(adAccount.id, socialAccessToken, startDateStr, endDateStr)
+            ]);
+
+            // Ensure fallback dummy campaign exists to avoid foreign key constraint errors
+            await db.fbCampaign.upsert({
+              where: { id: "unknown" },
+              update: { adAccountId: adAccount.id, updatedAt: new Date() },
+              create: { id: "unknown", name: "Невідома кампанія", adAccountId: adAccount.id }
+            }).catch(() => {});
+
+            // Parallelize campaign updates
+            await Promise.all(
+              fbCampaigns.map(camp =>
+                db.fbCampaign.upsert({
+                  where: { id: camp.id },
+                  update: {
+                    name: camp.name,
+                    status: camp.status,
+                    effectiveStatus: camp.effective_status,
+                    updatedAt: new Date()
+                  },
+                  create: {
+                    id: camp.id,
+                    name: camp.name,
+                    status: camp.status,
+                    effectiveStatus: camp.effective_status,
+                    adAccountId: adAccount.id
+                  }
+                })
+              )
+            );
+
+            // Find missing campaigns that adsets might reference and upsert them first
+            const missingCampaignIds = Array.from(new Set(
+              fbAdSets
+                .filter(adset => adset.campaign_id && !fbCampaigns.some(c => c.id === adset.campaign_id))
+                .map(adset => adset.campaign_id)
+            ));
+
+            if (missingCampaignIds.length > 0) {
+              await Promise.all(
+                missingCampaignIds.map(campId =>
+                  db.fbCampaign.upsert({
+                    where: { id: campId },
+                    update: { updatedAt: new Date() },
+                    create: {
+                      id: campId,
+                      name: `Campaign ${campId}`,
+                      adAccountId: adAccount.id
+                    }
+                  })
+                )
+              );
+            }
+
+            // Ensure fallback dummy adset exists to avoid foreign key constraint errors
+            await db.fbAdSet.upsert({
+              where: { id: "unknown" },
+              update: { updatedAt: new Date() },
+              create: { id: "unknown", name: "Невідома група оголошень", campaignId: "unknown" }
+            }).catch(() => {});
+
+            // Parallelize adsets updates
+            await Promise.all(
+              fbAdSets.map(adset =>
+                db.fbAdSet.upsert({
+                  where: { id: adset.id },
+                  update: {
+                    name: adset.name,
+                    status: adset.status,
+                    effectiveStatus: adset.effective_status,
+                    updatedAt: new Date()
+                  },
+                  create: {
+                    id: adset.id,
+                    name: adset.name,
+                    status: adset.status,
+                    effectiveStatus: adset.effective_status,
+                    campaignId: adset.campaign_id || "unknown"
+                  }
+                })
+              )
+            );
+
+            // Find missing adsets that ads might reference and upsert them first
+            const missingAdSetIds = Array.from(new Set(
+              fbAds
+                .filter(ad => ad.adset_id && !fbAdSets.some(a => a.id === ad.adset_id))
+                .map(ad => ad.adset_id)
+            ));
+
+            if (missingAdSetIds.length > 0) {
+              await Promise.all(
+                missingAdSetIds.map(adsetId => {
+                  const parentCampId = fbAdSets.find(s => s.id === adsetId)?.campaign_id || "unknown";
+                  return db.fbAdSet.upsert({
+                    where: { id: adsetId },
+                    update: { updatedAt: new Date() },
+                    create: {
+                      id: adsetId,
+                      name: `Adset ${adsetId}`,
+                      campaignId: parentCampId
+                    }
+                  });
+                })
+              );
+            }
+
+            // Pre-fetch existing ads to avoid loop-internal findUnique queries
+            const adIds = fbAds.map(ad => ad.id);
+            const existingAds = await db.fbAd.findMany({
+              where: { id: { in: adIds } }
+            });
+
+            // Process and collect Telegram alerts
+            const telegramAlertPromises: Promise<any>[] = [];
+            const user = (socialAccount as any).user;
+
+            for (const ad of fbAds) {
+              const oldAd = existingAds.find(a => a.id === ad.id);
+
+              if (user && user.telegramChatId) {
+                // Determine if the ad was created recently (last 24 hours) to notify on first sync
+                const createdTime = ad.created_time ? new Date(ad.created_time) : new Date();
+                const isRecentAd = (Date.now() - createdTime.getTime()) < 24 * 60 * 60 * 1000;
+
+                // 1. Alert on Rejections (Disapproved ads)
+                let shouldAlertRejection = false;
+                if (ad.effective_status === "DISAPPROVED" && user.alertOnRejections) {
+                  if (oldAd) {
+                    shouldAlertRejection = oldAd.effectiveStatus !== "DISAPPROVED";
+                  } else {
+                    shouldAlertRejection = isRecentAd;
+                  }
+                }
+
+                if (shouldAlertRejection) {
+                  telegramAlertPromises.push(
+                    sendTelegramAlert(
+                      `🚫 <b>[VartaFlow Alert] ОГОЛОШЕННЯ ВІДХИЛЕНО META</b>\n\n` +
+                      `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                      `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                      `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                      `• <b>Статус:</b> DISAPPROVED (Відхилено)\n` +
+                      `• <b>Причина:</b> ${ad.rejection_reason || "Причина не вказана"}`,
+                      user.telegramChatId
+                    ).catch(err => console.error("Failed to send telegram alert:", err))
+                  );
+                }
+
+                // 2. Alert on Approvals (Active ads)
+                let shouldAlertApproval = false;
+                if (ad.effective_status === "ACTIVE" && user.alertOnApprovals) {
+                  if (oldAd) {
+                    const wasPendingOrDisapproved = 
+                      oldAd.effectiveStatus === "PENDING_REVIEW" || 
+                      oldAd.effectiveStatus === "IN_PROCESS" || 
+                      oldAd.effectiveStatus === "DISAPPROVED";
+                    shouldAlertApproval = wasPendingOrDisapproved;
+                  } else {
+                    shouldAlertApproval = isRecentAd;
+                  }
+                }
+
+                if (shouldAlertApproval) {
+                  telegramAlertPromises.push(
+                    sendTelegramAlert(
+                      `✅ <b>[VartaFlow Alert] ОГОЛОШЕННЯ ПРОЙШЛО МОДЕРАЦІЮ</b>\n\n` +
+                      `• <b>Профіль:</b> ${socialAccount.name}\n` +
+                      `• <b>Кабінет:</b> ${adAccount.name} (ID: <code>${adAccount.id}</code>)\n` +
+                      `• <b>Оголошення:</b> ${ad.name} (ID: <code>${ad.id}</code>)\n` +
+                      `• <b>Статус:</b> ACTIVE (Активне)`,
+                      user.telegramChatId
+                    ).catch(err => console.error("Failed to send telegram alert:", err))
+                  );
+                }
+              }
+
+              // Collect active ad creative story IDs for comment tracking
+              if (ad.status === "ACTIVE" && ad.creative?.effective_object_story_id) {
+                const storyId = ad.creative.effective_object_story_id;
+                const pageId = storyId.split("_")[0];
+                allStoryIdsRaw.push({ storyId, pageId });
+              }
+            }
+
+            // Trigger Telegram alerts in parallel
+            if (telegramAlertPromises.length > 0) {
+              await Promise.all(telegramAlertPromises);
+            }
+
+            // Parallelize ads updates
+            await Promise.all(
+              fbAds.map(ad =>
+                db.fbAd.upsert({
+                  where: { id: ad.id },
+                  update: {
+                    name: ad.name,
+                    status: ad.status,
+                    effectiveStatus: ad.effective_status,
+                    rejectionReason: ad.rejection_reason,
+                    updatedAt: new Date()
+                  },
+                  create: {
+                    id: ad.id,
+                    name: ad.name,
+                    status: ad.status,
+                    effectiveStatus: ad.effective_status,
+                    rejectionReason: ad.rejection_reason,
+                    adsetId: ad.adset_id || "unknown"
+                  }
+                })
+              )
+            );
+
+            // Filter out empty zero-activity insight rows to save DB writes
+            const activeInsights = insights.filter(i => i.spend > 0 || i.impressions > 0 || i.clicks > 0 || i.leads > 0);
+
+            // If real country breakdown is present, clean up legacy 'ALL' or invalid rows for this account in this date range
+            if (activeInsights.some(i => i.country && i.country !== "ALL")) {
+              const startSyncDateObj = parseKyivDateToUTC(startDateStr);
+              const endSyncDateObj = parseKyivDateToUTC(endDateStr);
+              endSyncDateObj.setUTCHours(23, 59, 59, 999);
+
+              await db.dailyInsight.deleteMany({
+                where: {
+                  adAccountId: adAccount.id,
+                  date: { gte: startSyncDateObj, lte: endSyncDateObj },
+                  country: { in: ["ALL", "GP", "UNKNOWN"] }
+                }
+              }).catch(() => {});
+            }
+
+            // Parallelize daily insights upserts
+            await Promise.all(
+              activeInsights.map(insight => {
+                const dateObj = parseKyivDateToUTC(insight.date);
+                const spendVal = roundCurrency(insight.spend);
+                const ctrVal = insight.impressions > 0 ? roundCurrency((insight.clicks / insight.impressions) * 100) : 0;
+                const cpcVal = insight.clicks > 0 ? roundCurrency(spendVal / insight.clicks) : 0;
+                const cpmVal = insight.impressions > 0 ? roundCurrency((spendVal / insight.impressions) * 1000) : 0;
+                const countryVal = insight.country || fbAdSets.find(s => s.id === insight.adsetId)?.targetCountry || "ALL";
+
+                return db.dailyInsight.upsert({
+                  where: {
+                    date_adAccountId_campaignId_adsetId_adId_country: {
+                      date: dateObj,
+                      adAccountId: adAccount.id,
+                      campaignId: insight.campaignId,
+                      adsetId: insight.adsetId || "null",
+                      adId: insight.adId || "null",
+                      country: countryVal
+                    }
+                  },
+                  update: {
+                    campaignName: insight.campaignName,
+                    adsetName: insight.adsetName,
+                    adName: insight.adName,
+                    spend: spendVal,
+                    impressions: insight.impressions,
+                    clicks: insight.clicks,
+                    uniqueClicks: insight.uniqueClicks,
+                    leads: insight.leads,
+                    conversions: insight.conversions,
+                    ctr: ctrVal,
+                    cpc: cpcVal,
+                    cpm: cpmVal,
+                    updatedAt: new Date()
+                  },
+                  create: {
+                    date: dateObj,
+                    adAccountId: adAccount.id,
+                    campaignId: insight.campaignId,
+                    campaignName: insight.campaignName,
+                    adsetId: insight.adsetId || "null",
+                    adsetName: insight.adsetName,
+                    adId: insight.adId || "null",
+                    adName: insight.adName,
+                    country: countryVal,
+                    spend: spendVal,
+                    impressions: insight.impressions,
+                    clicks: insight.clicks,
+                    uniqueClicks: insight.uniqueClicks,
+                    leads: insight.leads,
+                    conversions: insight.conversions,
+                    ctr: ctrVal,
+                    cpc: cpcVal,
+                    cpm: cpmVal
+                  }
+                });
+              })
+            );
+            syncedCampaignsCount += insights.length;
+
+            // 5. Evaluate Automation Rules for this Ad Account
+            const rules = await db.automationRule.findMany({
+              where: { adAccountId: adAccount.id, isActive: true }
+            });
+
+            if (rules.length > 0) {
+              const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+              const todayEnd = new Date(new Date().setHours(23, 59, 59, 999));
+
+              const allInsightsForToday = await db.dailyInsight.findMany({
+                where: {
+                  adAccountId: adAccount.id,
+                  date: { gte: todayStart, lte: todayEnd }
+                }
+              });
+
+              for (const rule of rules) {
+                const insightsForToday = rule.targetId === "ALL" 
+                  ? allInsightsForToday 
+                  : allInsightsForToday.filter(i => i.campaignId === rule.targetId);
+
+                let totalSpend = 0;
+                let totalLeads = 0;
+
+                for (const item of insightsForToday) {
+                  totalSpend += item.spend;
+                  totalLeads += item.leads;
+                }
+
+                const cpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+                let isTriggered = false;
+
+                if (rule.triggerMetric === "SPEND") {
+                  if (rule.triggerOperator === "GREATER_THAN" && totalSpend > rule.triggerValue) {
+                    isTriggered = true;
+                  } else if (rule.triggerOperator === "LESS_THAN" && totalSpend < rule.triggerValue) {
+                    isTriggered = true;
+                  }
+                } else if (rule.triggerMetric === "CPL") {
+                  if (totalLeads > 0) {
+                    if (rule.triggerOperator === "GREATER_THAN" && cpl > rule.triggerValue) {
+                      isTriggered = true;
+                    } else if (rule.triggerOperator === "LESS_THAN" && cpl < rule.triggerValue) {
+                      isTriggered = true;
+                    }
+                  }
+                }
+
+                if (isTriggered) {
+                  if (rule.action === "PAUSE") {
+                    const targetCampaignIds = rule.targetId === "ALL" 
+                      ? Array.from(new Set(insightsForToday.map(i => i.campaignId)))
+                      : [rule.targetId];
+
+                    for (const campaignId of targetCampaignIds) {
+                      const pauseUrl = `https://graph.facebook.com/v21.0/${campaignId}?status=PAUSED&access_token=${socialAccessToken}`;
+                      const pauseRes = await fetch(pauseUrl, { method: "POST" });
+                      
+                      if (pauseRes.ok) {
+                        console.log(`[RULE TRIGGERED] Successfully paused campaign ${campaignId} due to rule: ${rule.name}`);
+                      } else {
+                        const err = await pauseRes.json().catch(() => ({}));
+                        console.error(`[RULE ERROR] Failed to pause campaign ${campaignId}:`, err.error?.message);
+                      }
+                    }
+                    triggeredRulesCount++;
+                  }
+                }
+              }
+            }
+
+            // Update last synced date on Ad Account
+            await db.fbAdAccount.update({
+              where: { id: adAccount.id },
+              data: { lastSyncedAt: new Date() }
+            });
+
+            syncedAccountsCount++;
+          } catch (adAccError: any) {
+            console.error(`Error syncing insights for ad account ${adAccount.id}:`, adAccError?.message || adAccError);
+            await db.fbAdAccount.update({
+              where: { id: adAccount.id },
+              data: { lastSyncedAt: new Date() }
+            }).catch(() => {});
+          }
+        })
+      );
+    })
+  );
+
+  // Deduplicate collected story IDs
+  const activeAdStoryIdsMap = new Map<string, string>();
+  for (const item of allStoryIdsRaw) {
+    activeAdStoryIdsMap.set(item.storyId, item.pageId);
+  }
+  const activeAdStoryIds = Array.from(activeAdStoryIdsMap.entries()).map(([storyId, pageId]) => ({ storyId, pageId }));
+
+  // ═══════════════════════════════════════════════════════
+  // PHASE 2: PROACTIVE COMMENT FETCHING & MODERATION (ADS STORY POSTS)
+  // ═══════════════════════════════════════════════════════
+  let syncedCommentsCount = 0;
+  let moderatedCommentsCount = 0;
+
+  if (!skipComments) {
+    await Promise.all(
+      activeAdStoryIds.map(async (item) => {
+        const page = await db.fbPage.findUnique({
+          where: { id: item.pageId },
+          include: {
+            socialAccount: {
+              include: { user: true }
+            }
+          }
+        });
+
+        if (!page) return;
+
+        const pageAccessToken = decryptToken(page.accessToken);
+
+        try {
+          const commentsUrl = `https://graph.facebook.com/v21.0/${item.storyId}/comments?fields=id,message,from,created_time,is_hidden&limit=100&access_token=${pageAccessToken}`;
+          const commentsRes = await fetch(commentsUrl);
+          if (!commentsRes.ok) return;
+
+          const commentsData = await commentsRes.json();
+          const fbComments = commentsData.data || [];
+
+          const activeRules = await db.moderationRule.findMany({
+            where: {
+              isActive: true,
+              userId: page.socialAccount.userId,
+              OR: [
+                { pageId: page.id },
+                { pageId: null }
+              ]
+            }
+          });
+
+          await Promise.all(
+            fbComments.map(async (fbComment: any) => {
+              if (fbComment.from?.id === page.id) return;
+
+              await db.fbComment.upsert({
+                where: { fbCommentId: fbComment.id },
+                update: {
+                  message: fbComment.message,
+                  isHidden: fbComment.is_hidden,
+                  status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
+                  updatedAt: new Date()
+                },
+                create: {
+                  fbCommentId: fbComment.id,
+                  pageId: page.id,
+                  postId: item.storyId,
+                  message: fbComment.message,
+                  authorName: fbComment.from?.name || "Невідомий",
+                  authorFbId: fbComment.from?.id,
+                  isHidden: fbComment.is_hidden,
+                  status: fbComment.is_hidden ? "HIDDEN" : "VISIBLE",
+                  fbCreatedAt: fbComment.created_time ? new Date(fbComment.created_time) : null
+                }
+              });
+              syncedCommentsCount++;
+
+              if (activeRules.length === 0) return;
+
+              if (fbComment.created_time) {
+                const commentTime = new Date(fbComment.created_time).getTime();
+                const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+                if (commentTime < oneDayAgo) return;
+              }
+
+              const existingLog = await db.moderationLog.findFirst({
+                where: { commentId: fbComment.id }
+              });
+              if (existingLog) return;
+
+              for (const rule of activeRules) {
+                let matchesRule = false;
+                const commentText = fbComment.message || "";
+
+                if (rule.type === "STOP_WORDS") {
+                  const stopWords = rule.keywords.split(",").map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+                  const lowerComment = commentText.toLowerCase();
+                  matchesRule = stopWords.some(word => lowerComment.includes(word));
+                } else if (rule.type === "LINKS") {
+                  const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+                  matchesRule = linkRegex.test(commentText);
+                } else if (rule.type === "TELEGRAM") {
+                  const tgRegex = /(t\.me|telegram\.me|@[\w_]{5,})/gi;
+                  matchesRule = tgRegex.test(commentText);
+                } else if (rule.type === "HIDE_ALL") {
+                  matchesRule = true;
+                }
+
+                if (matchesRule && !fbComment.is_hidden) {
+                  const result = await moderateFacebookComment(
+                    fbComment.id,
+                    rule.action as "HIDE" | "DELETE",
+                    pageAccessToken
+                  );
+
+                  if (result.success) {
+                    await db.moderationLog.create({
+                      data: {
+                        pageId: page.id,
+                        postId: item.storyId,
+                        commentId: fbComment.id,
+                        commentText: fbComment.message,
+                        authorName: fbComment.from?.name || "Невідомий",
+                        actionTaken: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
+                        ruleMatched: rule.name
+                      }
+                    });
+
+                    const user = page.socialAccount.user;
+                    if (user && user.telegramChatId && user.alertOnComments) {
+                      await sendTelegramAlert(
+                        `💬 <b>[VartaFlow Alert] КОМЕНТАР МОДЕРОВАНО</b>\n\n` +
+                        `• <b>Сторінка:</b> ${page.name}\n` +
+                        `• <b>Автор:</b> ${fbComment.from?.name || "Невідомий"}\n` +
+                        `• <b>Коментар:</b> <i>"${fbComment.message}"</i>\n` +
+                        `• <b>Дія:</b> ${rule.action === "HIDE" ? "ПРИХОВАНО" : "ВИДАЛЕНО"}\n` +
+                        `• <b>Правило:</b> ${rule.name}`,
+                        user.telegramChatId
+                      ).catch(e => console.error("Failed to send telegram moderation alert:", e));
+                    }
+
+                    await db.fbComment.update({
+                      where: { fbCommentId: fbComment.id },
+                      data: {
+                        status: rule.action === "HIDE" ? "HIDDEN" : "DELETED",
+                        isHidden: true
+                      }
+                    });
+
+                    moderatedCommentsCount++;
+                    break;
+                  }
+                }
+              }
+            })
+          );
+        } catch (pageError) {
+          console.error(`Error fetching comments for story ${item.storyId}:`, pageError);
+        }
+      })
+    );
+  }
+
+  return {
+    success: true,
+    syncedAccounts: syncedAccountsCount,
+    syncedCampaigns: syncedCampaignsCount,
+    triggeredRules: triggeredRulesCount,
+    syncedComments: syncedCommentsCount,
+    moderatedComments: moderatedCommentsCount
+  };
+}
